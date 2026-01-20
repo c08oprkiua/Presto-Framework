@@ -10,13 +10,21 @@
 #include <math.h>
 #include <stdint.h>
 
-// Collision mode based on ground angle (SPG)
-typedef enum CollisionMode {
-    MODE_FLOOR,      // 0-45° and 315-360° - sensors point down
-    MODE_RIGHT_WALL, // 46-134° - sensors point right
-    MODE_CEILING,    // 135-225° - sensors point up
-    MODE_LEFT_WALL   // 226-314° - sensors point left
-} CollisionMode;
+typedef enum Directions {
+    NONE = 0,
+    DOWN = 1 << 0,
+    RIGHT = 1 << 1,
+    UP = 1 << 2,
+    LEFT = 1 << 3,
+} Directions;
+
+typedef enum ComboDirections {
+    DOWN_RIGHT = DOWN | RIGHT,
+    UP_RIGHT = UP | RIGHT,
+    UP_LEFT = UP | LEFT,
+    DOWN_LEFT = DOWN | LEFT,
+    ANY = DOWN | UP | LEFT | RIGHT
+} ComboDirections;
 
 // ========== Player Structures and Enums ==========
 // Player State
@@ -102,19 +110,6 @@ typedef enum {
     ANIM_SURPRISED
 } PlayerAnimationState;
 
-// Player Ground Direction
-typedef enum {
-    NOINPUT,
-    DOWN,
-    DOWN_RIGHT,
-    RIGHT,
-    UP_RIGHT,
-    UP,
-    UP_LEFT,
-    LEFT,
-    DOWN_LEFT
-} PlayerGroundDirection;
-
 // Slip Angle Type
 typedef enum {
     SONIC_1_2_CD,
@@ -130,7 +125,7 @@ typedef struct {
     // SPG ground speed (magnitude along ground surface)
     float groundSpeed;          // Speed along the ground surface
     uint8_t groundAngle;        // Ground angle (0-255, where 0=flat, 64=right wall, 128=ceiling, 192=left wall)
-    CollisionMode collisionMode; // Current collision mode based on angle
+    Directions collisionMode; // Current collision mode based on angle
 
     // Hitbox radii (SPG style)
     float widthRadius;          // Half-width of collision box
@@ -171,7 +166,6 @@ typedef struct {
     PlayerType type;
     PlayerState state;
     PlayerIdleState idleState;
-    PlayerGroundDirection groundDirection;
 
     // Timers
     uint8_t controlLockTimer;   // Frames to lock controls (slope slip)
@@ -206,6 +200,8 @@ void InitPlayer(Player* player, PlayerType type, Vector2 startPosition);
 void UpdatePlayer(Player* player, float deltaTime);
 void DrawPlayer(const Player* player);
 void SetPlayerAnimation(Player* player, PlayerAnimationState newState);
+//Get the calculated sensor positions for the player based on their current mode.
+void GetPlayerSensorPositions(Player *player, Vector2 *groundSensorA, Vector2 *groundSensorB, Vector2 *wallSensor);
 void HandlePlayerInput(Player* player);
 void UpdatePlayerState(Player* player);
 void UpdatePlayerAnimation(Player* player, float deltaTime);

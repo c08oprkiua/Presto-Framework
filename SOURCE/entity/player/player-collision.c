@@ -1,7 +1,9 @@
 // Player Collision - SPG-accurate collision detection implementation
 #include "player-collision.h"
 #include "../../util/util-global.h"
+#include "entity/player/player-player.h"
 #include <math.h>
+#include <raymath.h>
 #include <stdio.h>
 
 // Tiled flip flags
@@ -22,7 +24,7 @@ void InitCollisionSystem(int** levelData, int levelWidth, int levelHeight) {
 
 // Get collision mode from angle (SPG four-mode system)
 // Angles are 0-255 where 0=flat ground, 64=right wall, 128=ceiling, 192=left wall
-CollisionMode GetCollisionModeFromAngle(uint8_t angle) {
+Directions GetCollisionModeFromAngle(uint8_t angle) {
     // Convert to degrees for easier understanding: angle * 360 / 256 = angle * 1.40625
     // Floor: 0-45° (0-32) and 315-360° (224-255)
     // Right Wall: 46-134° (33-95)
@@ -30,13 +32,13 @@ CollisionMode GetCollisionModeFromAngle(uint8_t angle) {
     // Left Wall: 226-314° (161-223)
 
     if (angle <= 32 || angle >= 224) {
-        return MODE_FLOOR;
+        return DOWN;
     } else if (angle >= 33 && angle <= 95) {
-        return MODE_RIGHT_WALL;
+        return RIGHT;
     } else if (angle >= 96 && angle <= 160) {
-        return MODE_CEILING;
+        return UP;
     } else {
-        return MODE_LEFT_WALL;
+        return LEFT;
     }
 }
 
@@ -82,7 +84,7 @@ bool IsTileSolid(int tileId) {
 
 // Get height at X position within a tile (for floor/ceiling collision)
 int GetTileHeightAtX(int tileId, int localX, bool flipH, bool flipV) {
-    if (tileId <= 0 || tileId >= TILESET_TILE_COUNT) return 0;
+    if (!IsTileSolid(tileId)) return 0;
 
     // Handle horizontal flip - mirror the X coordinate
     int x = flipH ? (TILE_SIZE - 1 - localX) : localX;
@@ -103,7 +105,7 @@ int GetTileHeightAtX(int tileId, int localX, bool flipH, bool flipV) {
 
 // Get width at Y position within a tile (for wall collision)
 int GetTileWidthAtY(int tileId, int localY, bool flipH, bool flipV) {
-    if (tileId <= 0 || tileId >= TILESET_TILE_COUNT) return 0;
+    if (!IsTileSolid(tileId)) return 0;
 
     // Handle vertical flip - mirror the Y coordinate
     int y = flipV ? (TILE_SIZE - 1 - localY) : localY;
@@ -440,15 +442,15 @@ static SensorResult CheckLeftWallSensor(Vector2 sensorPos) {
 }
 
 // Generic sensor check based on collision mode
-SensorResult CheckSensor(Vector2 position, Vector2 direction, CollisionMode mode) {
+SensorResult CheckSensor(Vector2 position, Vector2 direction, Directions mode) {
     switch (mode) {
-        case MODE_FLOOR:
+        case DOWN:
             return CheckFloorSensor(position);
-        case MODE_CEILING:
+        case UP:
             return CheckCeilingSensor(position);
-        case MODE_RIGHT_WALL:
+        case RIGHT:
             return CheckRightWallSensor(position);
-        case MODE_LEFT_WALL:
+        case LEFT:
             return CheckLeftWallSensor(position);
         default:
             return CheckFloorSensor(position);
@@ -457,7 +459,7 @@ SensorResult CheckSensor(Vector2 position, Vector2 direction, CollisionMode mode
 
 // Check ground sensors A and B, return the winning result
 SensorResult CheckGroundSensors(Vector2 playerPos, float widthRadius, float heightRadius,
-                                 CollisionMode mode, uint8_t currentAngle,
+                                 Directions mode, uint8_t currentAngle,
                                  SensorResult* outSensorA, SensorResult* outSensorB) {
     // Calculate sensor positions based on collision mode
     Vector2 sensorAPos, sensorBPos;
@@ -472,7 +474,7 @@ SensorResult CheckGroundSensors(Vector2 playerPos, float widthRadius, float heig
     float offsetY = heightRadius;
 
     switch (mode) {
-        case MODE_FLOOR:
+        case DOWN:
             // A is left, B is right, both at bottom
             sensorAPos = (Vector2){
                 playerPos.x - widthRadius,
@@ -484,7 +486,7 @@ SensorResult CheckGroundSensors(Vector2 playerPos, float widthRadius, float heig
             };
             break;
 
-        case MODE_RIGHT_WALL:
+        case RIGHT:
             // Sensors rotated 90° CW - now on right side
             sensorAPos = (Vector2){
                 playerPos.x + heightRadius,
@@ -496,7 +498,7 @@ SensorResult CheckGroundSensors(Vector2 playerPos, float widthRadius, float heig
             };
             break;
 
-        case MODE_CEILING:
+        case UP:
             // Sensors rotated 180° - now on top
             sensorAPos = (Vector2){
                 playerPos.x + widthRadius,
@@ -508,7 +510,7 @@ SensorResult CheckGroundSensors(Vector2 playerPos, float widthRadius, float heig
             };
             break;
 
-        case MODE_LEFT_WALL:
+        case LEFT:
             // Sensors rotated 270° - now on left side
             sensorAPos = (Vector2){
                 playerPos.x - heightRadius,
@@ -550,12 +552,12 @@ SensorResult CheckGroundSensors(Vector2 playerPos, float widthRadius, float heig
 
 // Check ceiling sensors C and D
 SensorResult CheckCeilingSensors(Vector2 playerPos, float widthRadius, float heightRadius,
-                                  CollisionMode mode, uint8_t currentAngle,
+                                  Directions mode, uint8_t currentAngle,
                                   SensorResult* outSensorC, SensorResult* outSensorD) {
     Vector2 sensorCPos, sensorDPos;
 
     switch (mode) {
-        case MODE_FLOOR:
+        case DOWN:
             // C is left, D is right, both at top
             sensorCPos = (Vector2){
                 playerPos.x - widthRadius,
@@ -567,7 +569,7 @@ SensorResult CheckCeilingSensors(Vector2 playerPos, float widthRadius, float hei
             };
             break;
 
-        case MODE_RIGHT_WALL:
+        case RIGHT:
             sensorCPos = (Vector2){
                 playerPos.x - heightRadius,
                 playerPos.y - widthRadius
@@ -578,7 +580,7 @@ SensorResult CheckCeilingSensors(Vector2 playerPos, float widthRadius, float hei
             };
             break;
 
-        case MODE_CEILING:
+        case UP:
             sensorCPos = (Vector2){
                 playerPos.x + widthRadius,
                 playerPos.y + heightRadius
@@ -589,7 +591,7 @@ SensorResult CheckCeilingSensors(Vector2 playerPos, float widthRadius, float hei
             };
             break;
 
-        case MODE_LEFT_WALL:
+        case LEFT:
             sensorCPos = (Vector2){
                 playerPos.x + heightRadius,
                 playerPos.y + widthRadius
@@ -602,13 +604,13 @@ SensorResult CheckCeilingSensors(Vector2 playerPos, float widthRadius, float hei
     }
 
     // Check as ceiling sensors (upward)
-    CollisionMode ceilingMode;
+    Directions ceilingMode;
     switch (mode) {
-        case MODE_FLOOR: ceilingMode = MODE_CEILING; break;
-        case MODE_RIGHT_WALL: ceilingMode = MODE_LEFT_WALL; break;
-        case MODE_CEILING: ceilingMode = MODE_FLOOR; break;
-        case MODE_LEFT_WALL: ceilingMode = MODE_RIGHT_WALL; break;
-        default: ceilingMode = MODE_CEILING; break;
+        case DOWN: ceilingMode = UP; break;
+        case RIGHT: ceilingMode = LEFT; break;
+        case UP: ceilingMode = DOWN; break;
+        case LEFT: ceilingMode = RIGHT; break;
+        default: ceilingMode = UP; break;
     }
 
     SensorResult resultC = CheckSensor(sensorCPos, (Vector2){0, -1}, ceilingMode);
@@ -634,21 +636,21 @@ SensorResult CheckCeilingSensors(Vector2 playerPos, float widthRadius, float hei
 }
 
 // Check wall/push sensors E and F
-void CheckWallSensors(Vector2 playerPos, float pushRadius, CollisionMode mode,
+void CheckWallSensors(Vector2 playerPos, float pushRadius, Directions mode,
                       SensorResult* outSensorE, SensorResult* outSensorF) {
     // Push sensors are always at player center height
     // E is left, F is right (in floor mode)
     Vector2 sensorEPos, sensorFPos;
 
     switch (mode) {
-        case MODE_FLOOR:
-        case MODE_CEILING:
+        case DOWN:
+        case UP:
             sensorEPos = (Vector2){playerPos.x - pushRadius, playerPos.y};
             sensorFPos = (Vector2){playerPos.x + pushRadius, playerPos.y};
             break;
 
-        case MODE_RIGHT_WALL:
-        case MODE_LEFT_WALL:
+        case RIGHT:
+        case LEFT:
             sensorEPos = (Vector2){playerPos.x, playerPos.y - pushRadius};
             sensorFPos = (Vector2){playerPos.x, playerPos.y + pushRadius};
             break;
@@ -660,4 +662,115 @@ void CheckWallSensors(Vector2 playerPos, float pushRadius, CollisionMode mode,
 
     if (outSensorE) *outSensorE = resultE;
     if (outSensorF) *outSensorF = resultF;
+}
+
+SensorResult CheckAnySensor(Vector2 origin, Vector2 target, Directions mode){
+    SensorResult result = {0};
+    result.found = false;
+    result.distance = TILE_SIZE; // Default to "not found" distance
+
+    Vector2 sensorPos = Vector2Add(origin, target);
+
+    // Get the tile we're in
+    int tileX  = (int) sensorPos.x / TILE_SIZE;
+    int tileY  = (int) sensorPos.y / TILE_SIZE;
+
+    int localX = (int) sensorPos.x % TILE_SIZE;
+    int localY = (int) sensorPos.y % TILE_SIZE;
+
+    // Handle negative coordinates
+    if (sensorPos.x < 0) {
+        tileX--;
+        localX = TILE_SIZE + ((int)sensorPos.x % TILE_SIZE);
+        if (localX == TILE_SIZE) { localX = 0; tileX++; }
+    }
+    if (sensorPos.y < 0) {
+        tileY--;
+        localY = TILE_SIZE + ((int)sensorPos.y % TILE_SIZE);
+        if (localY == TILE_SIZE) { localY = 0; tileY++; }
+    }
+
+    bool flipH, flipV;
+    int tileId = GetTileAtPosition((int)sensorPos.x, (int)sensorPos.y, &flipH, &flipV);
+
+    if (IsTileSolid(tileId)) {
+        if (mode & (UP | DOWN)){
+
+        }
+
+        int height =  GetTileHeightAtX(tileId, localX, flipH, flipV);
+
+        if (height > 0) {
+            // Calculate distance from sensor to surface
+            // Height is measured from bottom of tile
+            int surfaceY;
+            if (flipV) {
+                // Flipped vertically - height is from top
+                surfaceY = tileY * TILE_SIZE + height;
+            } else {
+                // Normal - height is from bottom
+                surfaceY = (tileY + 1) * TILE_SIZE - height;
+            }
+
+            result.distance = surfaceY - (int)sensorPos.y;
+            result.found = true;
+            result.tileX = tileX;
+            result.tileY = tileY;
+            result.tileId = tileId;
+            result.angle = GetTileAngle(tileId);
+            result.surfacePoint = (Vector2){sensorPos.x, (float)surfaceY};
+
+            // If height is 16 (full tile), check tile above for regression
+            if (height == TILE_SIZE && result.distance >= 0) {
+                // Check tile above
+                int aboveTileId = GetTileAtPosition((int)sensorPos.x, (int)sensorPos.y - TILE_SIZE, &flipH, &flipV);
+                if (IsTileSolid(aboveTileId)) {
+                    int aboveHeight = GetTileHeightAtX(aboveTileId, localX, flipH, flipV);
+                    if (aboveHeight > 0) {
+                        int aboveSurfaceY;
+                        if (flipV) {
+                            aboveSurfaceY = (tileY - 1) * TILE_SIZE + aboveHeight;
+                        } else {
+                            aboveSurfaceY = tileY * TILE_SIZE - aboveHeight;
+                        }
+                        result.distance = aboveSurfaceY - (int)sensorPos.y;
+                        result.tileY = tileY - 1;
+                        result.tileId = aboveTileId;
+                        result.angle = GetTileAngle(aboveTileId);
+                        result.surfacePoint.y = (float)aboveSurfaceY;
+                    }
+                }
+            }
+
+            return result;
+        }
+
+        int width = GetTileWidthAtY(tileId, localX, flipH, flipV);
+    }
+
+    // No solid tile at sensor position - check tile below (extension)
+    tileId = GetTileAtPosition((int)sensorPos.x, (int)sensorPos.y + TILE_SIZE, &flipH, &flipV);
+
+    if (IsTileSolid(tileId)) {
+        int height = GetTileHeightAtX(tileId, localX, flipH, flipV);
+
+        if (height > 0) {
+            int surfaceY;
+            if (flipV) {
+                surfaceY = (tileY + 1) * TILE_SIZE + height;
+            } else {
+                surfaceY = (tileY + 2) * TILE_SIZE - height;
+            }
+
+            result.distance = surfaceY - (int)sensorPos.y;
+            result.found = true;
+            result.tileX = tileX;
+            result.tileY = tileY + 1;
+            result.tileId = tileId;
+            result.angle = GetTileAngle(tileId);
+            result.surfacePoint = (Vector2){sensorPos.x, (float)surfaceY};
+        }
+    }
+
+    return result;
 }

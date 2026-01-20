@@ -46,7 +46,6 @@ void InitPlayer(Player* player, PlayerType type, Vector2 startPosition) {
     player->defaultWidthRadius = player->widthRadius;
     player->defaultHeightRadius = player->heightRadius;
 
-    player->groundDirection = NOINPUT;
     player->facing = 1; // Facing right by default
 
     // Initialize sprite and animation manager (NULL for now)
@@ -75,7 +74,7 @@ void InitPlayer(Player* player, PlayerType type, Vector2 startPosition) {
 
     player->groundSpeed = 0.0f;
     player->groundAngle = 0;  // 0-255 byte angle
-    player->collisionMode = MODE_FLOOR;
+    player->collisionMode = DOWN;
 
     player->inputLeft = false;
     player->inputRight = false;
@@ -115,15 +114,15 @@ void HandlePlayerInput(Player* player) {
 
     // Update ground direction for animation purposes
     if (player->inputLeft && player->inputRight) {
-        player->groundDirection = NOINPUT;
+        player->facing = 0;
     } else if (player->inputLeft) {
-        player->groundDirection = LEFT;
+        player->facing = -1;
         if (!player->controlLockTimer) player->facing = -1;
     } else if (player->inputRight) {
-        player->groundDirection = RIGHT;
+        player->facing = 1;
         if (!player->controlLockTimer) player->facing = 1;
     } else {
-        player->groundDirection = NOINPUT;
+        player->facing = 0;
     }
 }
 
@@ -337,7 +336,7 @@ static void HandleJump(Player* player) {
 
     // Clear ground state
     player->groundAngle = 0;
-    player->collisionMode = MODE_FLOOR;
+    player->collisionMode = DOWN;
 }
 
 // ============================================================================
@@ -414,6 +413,78 @@ static void UpdatePosition(Player* player) {
 // Collision Detection
 // ============================================================================
 
+void GetPlayerSensorPositions(Player *player, Vector2 *groundSensorA, Vector2 *groundSensorB, Vector2 *wallSensor){
+
+    //TODO: Wall mode sensors may be misplaced, needs double checking
+
+    switch (player->collisionMode){
+        case NONE:
+        case DOWN:{
+            // A is left, B is right, both at bottom
+            *groundSensorA = (Vector2){
+                player->position.x - player->widthRadius,
+                player->position.y + player->heightRadius
+            };
+            *groundSensorB = (Vector2){
+                player->position.x + player->widthRadius,
+                player->position.y + player->heightRadius
+            };
+
+            *wallSensor = (Vector2){
+                (player->position.x + player->widthRadius) * player->facing,
+                player->position.y
+            };
+        }; break;
+        case UP:{
+            *groundSensorA = (Vector2){
+                player->position.x + player->widthRadius,
+                player->position.y - player->heightRadius
+            };
+            *groundSensorB = (Vector2){
+                player->position.x - player->widthRadius,
+                player->position.y - player->heightRadius
+            };
+
+            *wallSensor = (Vector2){
+                (player->position.x + player->widthRadius) * -player->facing,
+                player->position.y,
+            };
+        }; break;
+        case RIGHT:{
+            *groundSensorA = (Vector2){
+                player->position.x + player->heightRadius,
+                player->position.y - player->widthRadius
+            };
+            *groundSensorB = (Vector2){
+                player->position.x + player->heightRadius,
+                player->position.y + player->widthRadius
+            };
+
+            *wallSensor = (Vector2){
+                player->position.x,
+                (player->position.x + player->widthRadius) * -player->facing
+            };
+        }; break;
+        case LEFT: {
+            *groundSensorA = (Vector2){
+                player->position.x + player->heightRadius,
+                player->position.y - player->widthRadius
+            };
+            *groundSensorB = (Vector2){
+                player->position.x + player->heightRadius,
+                player->position.y + player->widthRadius
+            };
+
+            *wallSensor = (Vector2){
+                player->position.x,
+                (player->position.x + player->widthRadius) * -player->facing
+            };
+
+        }; break;
+    }
+}
+
+
 static void HandleGroundCollision(Player* player) {
     SensorResult sensorA, sensorB;
     SensorResult ground = CheckGroundSensors(
@@ -448,7 +519,7 @@ static void HandleGroundCollision(Player* player) {
                     if (angleDeg >= 69 && angleDeg <= 293) {
                         player->isOnGround = false;
                         player->groundAngle = 0;
-                        player->collisionMode = MODE_FLOOR;
+                        player->collisionMode = DOWN;
                     }
                 }
             }
@@ -457,7 +528,7 @@ static void HandleGroundCollision(Player* player) {
         // Lost ground - start falling
         player->isOnGround = false;
         player->groundAngle = 0;
-        player->collisionMode = MODE_FLOOR;
+        player->collisionMode = DOWN;
     }
 }
 
@@ -469,7 +540,7 @@ static void HandleAirCollision(Player* player) {
             player->position,
             player->widthRadius,
             player->heightRadius,
-            MODE_FLOOR,
+            DOWN,
             0,
             &sensorA, &sensorB
         );
@@ -523,7 +594,7 @@ static void HandleAirCollision(Player* player) {
             player->position,
             player->widthRadius,
             player->heightRadius,
-            MODE_FLOOR,
+            DOWN,
             0,
             &sensorC, &sensorD
         );
@@ -536,7 +607,7 @@ static void HandleAirCollision(Player* player) {
 
     // Wall sensors
     SensorResult sensorE, sensorF;
-    CheckWallSensors(player->position, player->pushRadius, MODE_FLOOR, &sensorE, &sensorF);
+    CheckWallSensors(player->position, player->pushRadius, DOWN, &sensorE, &sensorF);
 
     if (sensorE.found && sensorE.distance <= 0 && player->velocity.x < 0) {
         player->position.x -= sensorE.distance;
