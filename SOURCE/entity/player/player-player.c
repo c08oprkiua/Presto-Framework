@@ -1,8 +1,9 @@
 // Player Script - SPG-accurate Sonic physics implementation
 #include "player-player.h"
+#include "player-var.h"
 #include "player-collision.h"
+#include <raymath.h>
 #include <string.h>
-#include <stdio.h>
 
 // ============================================================================
 // Animation
@@ -413,88 +414,34 @@ static void UpdatePosition(Player* player) {
 // Collision Detection
 // ============================================================================
 
-void GetPlayerSensorPositions(Player *player, Vector2 *groundSensorA, Vector2 *groundSensorB, Vector2 *wallSensor){
+static void HandleGroundCollision(Player* player, Vector2 *groundA, Vector2 *groundB) {
+    // Perform sensor checks
+    SensorResult resultA = CheckAnySensor(&player->position, groundA, DOWN);
+    SensorResult resultB = CheckAnySensor(&player->position, groundB, DOWN);
 
-    //TODO: Wall mode sensors may be misplaced, needs double checking
+    SensorResult ground = {0};
 
-    switch (player->collisionMode){
-        case NONE:
-        case DOWN:{
-            // A is left, B is right, both at bottom
-            *groundSensorA = (Vector2){
-                player->position.x - player->widthRadius,
-                player->position.y + player->heightRadius
-            };
-            *groundSensorB = (Vector2){
-                player->position.x + player->widthRadius,
-                player->position.y + player->heightRadius
-            };
-
-            *wallSensor = (Vector2){
-                (player->position.x + player->widthRadius) * player->facing,
-                player->position.y
-            };
-        }; break;
-        case UP:{
-            *groundSensorA = (Vector2){
-                player->position.x + player->widthRadius,
-                player->position.y - player->heightRadius
-            };
-            *groundSensorB = (Vector2){
-                player->position.x - player->widthRadius,
-                player->position.y - player->heightRadius
-            };
-
-            *wallSensor = (Vector2){
-                (player->position.x + player->widthRadius) * -player->facing,
-                player->position.y,
-            };
-        }; break;
-        case RIGHT:{
-            *groundSensorA = (Vector2){
-                player->position.x + player->heightRadius,
-                player->position.y - player->widthRadius
-            };
-            *groundSensorB = (Vector2){
-                player->position.x + player->heightRadius,
-                player->position.y + player->widthRadius
-            };
-
-            *wallSensor = (Vector2){
-                player->position.x,
-                (player->position.x + player->widthRadius) * -player->facing
-            };
-        }; break;
-        case LEFT: {
-            *groundSensorA = (Vector2){
-                player->position.x + player->heightRadius,
-                player->position.y - player->widthRadius
-            };
-            *groundSensorB = (Vector2){
-                player->position.x + player->heightRadius,
-                player->position.y + player->widthRadius
-            };
-
-            *wallSensor = (Vector2){
-                player->position.x,
-                (player->position.x + player->widthRadius) * -player->facing
-            };
-
-        }; break;
+    // Determine winner - smallest distance wins, A wins ties
+    if(resultA.found && resultB.found){
+        // Both found - compare distances (SPG: if equal, A wins)
+        if (resultA.distance <= resultB.distance) {
+            ground = resultA;
+        } else {
+            ground = resultB;
+        }
     }
-}
-
-
-static void HandleGroundCollision(Player* player) {
-    SensorResult sensorA, sensorB;
-    SensorResult ground = CheckGroundSensors(
-        player->position,
-        player->widthRadius,
-        player->heightRadius,
-        player->collisionMode,
-        player->groundAngle,
-        &sensorA, &sensorB
-    );
+    else if(resultA.found){
+        ground = resultA;
+    }
+    else if(resultB.found){
+        ground = resultB;
+    }
+    else {
+        // Neither found anything
+        ground.found = false;
+        //ground.distance = TILE_SIZE * 2; // Max distance
+        ground.distance = 16 * 2; // Max distance
+    }
 
     if (ground.found && ground.distance <= 14 && ground.distance >= -14) {
         // Snap to ground
@@ -507,11 +454,7 @@ static void HandleGroundCollision(Player* player) {
             float angleDeg = AngleByteToDegrees(player->groundAngle);
 
             if (fabsf(player->groundSpeed) < 2.5f) {
-                bool shouldSlip = false;
-
-                if (angleDeg >= 46 && angleDeg <= 315) {
-                    shouldSlip = true;
-                }
+                bool shouldSlip = (angleDeg >= 46 && angleDeg <= 315);
 
                 if (shouldSlip) {
                     player->controlLockTimer = 30;
@@ -523,6 +466,7 @@ static void HandleGroundCollision(Player* player) {
                     }
                 }
             }
+
         }
     } else if (ground.distance > 14 || !ground.found) {
         // Lost ground - start falling
@@ -532,16 +476,14 @@ static void HandleGroundCollision(Player* player) {
     }
 }
 
-static void HandleAirCollision(Player* player) {
+static void HandleAirCollision(Player* player, PlayerSensors *sensors) {
     // Ground sensors (moving mostly down)
     if (player->velocity.y >= 0) {
         SensorResult sensorA, sensorB;
         SensorResult ground = CheckGroundSensors(
-            player->position,
-            player->widthRadius,
-            player->heightRadius,
-            DOWN,
-            0,
+            &player->position,
+            &sensors->groundA,
+            &sensors->groundB,
             &sensorA, &sensorB
         );
 
@@ -589,7 +531,9 @@ static void HandleAirCollision(Player* player) {
 
     // Ceiling sensors (moving mostly up)
     if (player->velocity.y < 0) {
+
         SensorResult sensorC, sensorD;
+
         SensorResult ceiling = CheckCeilingSensors(
             player->position,
             player->widthRadius,
@@ -607,7 +551,8 @@ static void HandleAirCollision(Player* player) {
 
     // Wall sensors
     SensorResult sensorE, sensorF;
-    CheckWallSensors(player->position, player->pushRadius, DOWN, &sensorE, &sensorF);
+
+    CheckWallSensors(player->position, &sensors->pushE, &sensors->pushF, &sensorE, &sensorF);
 
     if (sensorE.found && sensorE.distance <= 0 && player->velocity.x < 0) {
         player->position.x -= sensorE.distance;
@@ -620,11 +565,11 @@ static void HandleAirCollision(Player* player) {
     }
 }
 
-static void HandleWallCollision(Player* player) {
+static void HandleWallCollision(Player* player, Vector2 *sensorEPos, Vector2 *sensorFPos) {
     if (!player->isOnGround) return;
 
     SensorResult sensorE, sensorF;
-    CheckWallSensors(player->position, player->pushRadius, player->collisionMode, &sensorE, &sensorF);
+    CheckWallSensors(player->position, sensorEPos, sensorFPos, &sensorE, &sensorF);
 
     if (sensorE.found && sensorE.distance < 0 && player->groundSpeed < 0) {
         player->position.x -= sensorE.distance;
@@ -772,6 +717,10 @@ void UpdatePlayerAnimation(Player* player, float deltaTime) {
 void UpdatePlayer(Player* player, float deltaTime) {
     if (player->isDead) return;
 
+    PlayerSensors sensors;
+
+    GetPlayerSensorPositions(player, &sensors);
+
     // 1. Handle input
     HandlePlayerInput(player);
 
@@ -788,31 +737,34 @@ void UpdatePlayer(Player* player, float deltaTime) {
         }
 
         UpdatePosition(player);
-        HandleWallCollision(player);
-        HandleGroundCollision(player);
+        HandleWallCollision(player, &sensors.pushE, &sensors.pushF);
+        HandleGroundCollision(player, &sensors.groundA, &sensors.groundB);
 
     } else {
         HandleVariableJump(player);
         UpdateAirMovement(player);
         UpdatePosition(player);
         ApplyGravity(player);
-        HandleAirCollision(player);
+        HandleAirCollision(player, &sensors);
     }
 
     UpdatePlayerState(player);
     UpdatePlayerAnimation(player, deltaTime);
+
+    DrawPlayer(player, &sensors);
 }
 
 // ============================================================================
 // Drawing
 // ============================================================================
 
-void DrawPlayer(const Player* player) {
+void DrawPlayer(const Player* player, PlayerSensors *sensors) {
     float width = player->widthRadius * 2;
     float height = player->heightRadius * 2;
 
     Color boxColor = player->isOnGround ? GREEN : RED;
     if (player->isRolling) boxColor = BLUE;
+
 
     Rectangle rect = {
         player->position.x - player->widthRadius,
@@ -821,21 +773,30 @@ void DrawPlayer(const Player* player) {
         height
     };
 
-    DrawRectangleRec(rect, (Color){boxColor.r, boxColor.g, boxColor.b, 128});
+    boxColor.a = 128;
+    DrawRectangleRec(rect, boxColor);
+    boxColor.a = 255;
     DrawRectangleLinesEx(rect, 1, boxColor);
     DrawCircleV(player->position, 2, YELLOW);
 
-    DrawLineV(
-        player->position,
-        (Vector2){player->position.x + player->facing * 15, player->position.y},
-        YELLOW
-    );
+    if (player->facing > 0){
+        DrawLineV(
+            player->position,
+            sensors->pushF,
+            YELLOW
+        );
+    }
+    else if (player->facing < 0){
+        DrawLineV(
+            player->position,
+            sensors->pushE,
+            YELLOW
+        );
+    }
 
     if (player->isOnGround) {
-        Vector2 sensorA = {player->position.x - player->widthRadius, player->position.y + player->heightRadius};
-        Vector2 sensorB = {player->position.x + player->widthRadius, player->position.y + player->heightRadius};
-        DrawCircleV(sensorA, 2, MAGENTA);
-        DrawCircleV(sensorB, 2, MAGENTA);
+        DrawCircleV(sensors->groundA, 2, MAGENTA);
+        DrawCircleV(sensors->groundB, 2, MAGENTA);
     }
 }
 

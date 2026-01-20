@@ -4,7 +4,6 @@
 #include "entity/player/player-player.h"
 #include <math.h>
 #include <raymath.h>
-#include <stdio.h>
 
 // Tiled flip flags
 #define FLIPPED_HORIZONTALLY_FLAG 0x80000000
@@ -52,12 +51,119 @@ float AngleByteToDegrees(uint8_t angleByte) {
     return (angleByte / 256.0f) * 360.0f;
 }
 
-// Get tile at world position with flip flags
-int GetTileAtPosition(int worldX, int worldY, bool* flipH, bool* flipV) {
-    if (!g_LevelCollision.tileData) return 0;
+void GetPlayerSensorPositions(Player *player, PlayerSensors *sensors){
 
-    int tileX = worldX / TILE_SIZE;
-    int tileY = worldY / TILE_SIZE;
+    //TODO: Wall mode ceiling sensors
+    switch (player->collisionMode){
+        case NONE:
+        case DOWN:{
+            // A is left, B is right, both at bottom
+            sensors->groundA = (Vector2){
+                player->position.x - player->widthRadius,
+                player->position.y + player->heightRadius
+            };
+            sensors->groundB = (Vector2){
+                player->position.x + player->widthRadius,
+                player->position.y + player->heightRadius
+            };
+
+            sensors->pushE = (Vector2){
+                player->position.x - player->pushRadius,
+                player->position.y
+            };
+            sensors->pushF = (Vector2){
+                player->position.x + player->pushRadius,
+                player->position.y
+            };
+
+            sensors->ceilingC = (Vector2){
+                player->position.x - player->widthRadius,
+                player->position.y - player->heightRadius
+            };
+            sensors->ceilingD = (Vector2){
+                player->position.x + player->widthRadius,
+                player->position.y - player->heightRadius
+            };
+        }; break;
+        case UP:{
+            // A is left, B is right, both at bottom
+            sensors->groundA = (Vector2){
+                player->position.x + player->widthRadius,
+                player->position.y - player->heightRadius
+            };
+            sensors->groundB = (Vector2){
+                player->position.x - player->widthRadius,
+                player->position.y - player->heightRadius
+            };
+
+            sensors->pushE = (Vector2){
+                player->position.x + player->pushRadius,
+                player->position.y
+            };
+            sensors->pushF = (Vector2){
+                player->position.x - player->pushRadius,
+                player->position.y
+            };
+
+            sensors->ceilingC = (Vector2){
+                player->position.x + player->widthRadius,
+                player->position.y + player->heightRadius
+            };
+            sensors->ceilingD = (Vector2){
+                player->position.x - player->widthRadius,
+                player->position.y + player->heightRadius
+            };
+
+        }; break;
+        case RIGHT:{
+            // Sensors rotated 90° CW - now on right side
+            sensors->groundA = (Vector2){
+                player->position.x + player->heightRadius,
+                player->position.y + player->widthRadius
+            };
+            sensors->groundB = (Vector2){
+                player->position.x + player->heightRadius,
+                player->position.y - player->widthRadius
+            };
+
+            sensors->pushE = (Vector2){
+                player->position.x,
+                player->position.y + player->pushRadius
+            };
+            sensors->pushF = (Vector2){
+                player->position.x,
+                player->position.y - player->pushRadius
+            };
+
+        }; break;
+        case LEFT:{
+
+            // Sensors rotated 270° - now on left side
+            sensors->groundA = (Vector2){
+                player->position.x - player->heightRadius,
+                player->position.y + player->widthRadius
+            };
+            sensors->groundB = (Vector2){
+                player->position.x - player->heightRadius,
+                player->position.y - player->widthRadius
+            };
+
+            sensors->pushE = (Vector2){
+                player->position.x,
+                player->position.y - player->pushRadius
+            };
+            sensors->pushF = (Vector2){
+                player->position.x,
+                player->position.y + player->pushRadius
+            };
+
+        }; break;
+    }
+}
+
+//GetTileAtPosition but it uses tile coordinates instead of raw world coordinates
+static int LocalGetTileAtPosition(int tileX, int tileY, bool* flipH, bool* flipV) {
+    if (!g_LevelCollision.tileData) return 0;
 
     // Bounds check
     if (tileX < 0 || tileX >= g_LevelCollision.width ||
@@ -77,7 +183,15 @@ int GetTileAtPosition(int worldX, int worldY, bool* flipH, bool* flipV) {
     return (int)(rawValue & TILE_ID_MASK);
 }
 
-// Check if tile is solid
+// Get tile at world position with flip flags
+int GetTileAtPosition(int worldX, int worldY, bool* flipH, bool* flipV) {
+    int tileX = worldX / TILE_SIZE;
+    int tileY = worldY / TILE_SIZE;
+
+    return LocalGetTileAtPosition(tileX, tileY, flipH, flipV);
+}
+
+// Check if tile is solid. This is a bounds check; any tile that is outside of the tileset size is non-solid (empty).
 bool IsTileSolid(int tileId) {
     return tileId > 0 && tileId < TILESET_TILE_COUNT;
 }
@@ -87,11 +201,7 @@ int GetTileHeightAtX(int tileId, int localX, bool flipH, bool flipV) {
     if (!IsTileSolid(tileId)) return 0;
 
     // Handle horizontal flip - mirror the X coordinate
-    int x = flipH ? (TILE_SIZE - 1 - localX) : localX;
-
-    // Clamp to valid range
-    if (x < 0) x = 0;
-    if (x >= TILE_SIZE) x = TILE_SIZE - 1;
+    int x = Clamp(flipH ? (TILE_SIZE - 1 - localX) : localX, 0.0f, TILE_SIZE - 1);
 
     int height = TILESET_HEIGHTMAPS[tileId][x];
 
@@ -108,11 +218,7 @@ int GetTileWidthAtY(int tileId, int localY, bool flipH, bool flipV) {
     if (!IsTileSolid(tileId)) return 0;
 
     // Handle vertical flip - mirror the Y coordinate
-    int y = flipV ? (TILE_SIZE - 1 - localY) : localY;
-
-    // Clamp to valid range
-    if (y < 0) y = 0;
-    if (y >= TILE_SIZE) y = TILE_SIZE - 1;
+    int y = Clamp(flipV ? (TILE_SIZE - 1 - localY) : localY, 0, TILE_SIZE - 1);
 
     int width = TILESET_WIDTHMAPS[tileId][y];
 
@@ -172,7 +278,7 @@ static SensorResult CheckFloorSensor(Vector2 sensorPos) {
             result.tileY = tileY;
             result.tileId = tileId;
             result.angle = GetTileAngle(tileId);
-            result.surfacePoint = (Vector2){sensorPos.x, (float)surfaceY};
+            result.globalContactPoint = (Vector2){sensorPos.x, (float)surfaceY};
 
             // If height is 16 (full tile), check tile above for regression
             if (height == TILE_SIZE && result.distance >= 0) {
@@ -191,7 +297,7 @@ static SensorResult CheckFloorSensor(Vector2 sensorPos) {
                         result.tileY = tileY - 1;
                         result.tileId = aboveTileId;
                         result.angle = GetTileAngle(aboveTileId);
-                        result.surfacePoint.y = (float)aboveSurfaceY;
+                        result.globalContactPoint.y = (float)aboveSurfaceY;
                     }
                 }
             }
@@ -220,7 +326,7 @@ static SensorResult CheckFloorSensor(Vector2 sensorPos) {
             result.tileY = tileY + 1;
             result.tileId = tileId;
             result.angle = GetTileAngle(tileId);
-            result.surfacePoint = (Vector2){sensorPos.x, (float)surfaceY};
+            result.globalContactPoint = (Vector2){sensorPos.x, (float)surfaceY};
         }
     }
 
@@ -267,7 +373,7 @@ static SensorResult CheckCeilingSensor(Vector2 sensorPos) {
             result.tileY = tileY;
             result.tileId = tileId;
             result.angle = GetTileAngle(tileId);
-            result.surfacePoint = (Vector2){sensorPos.x, (float)surfaceY};
+            result.globalContactPoint = (Vector2){sensorPos.x, (float)surfaceY};
 
             return result;
         }
@@ -293,7 +399,7 @@ static SensorResult CheckCeilingSensor(Vector2 sensorPos) {
             result.tileY = tileY - 1;
             result.tileId = tileId;
             result.angle = GetTileAngle(tileId);
-            result.surfacePoint = (Vector2){sensorPos.x, (float)surfaceY};
+            result.globalContactPoint = (Vector2){sensorPos.x, (float)surfaceY};
         }
     }
 
@@ -339,7 +445,7 @@ static SensorResult CheckRightWallSensor(Vector2 sensorPos) {
             result.tileY = tileY;
             result.tileId = tileId;
             result.angle = (uint8_t)TILESET_WIDTH_ANGLES[tileId];
-            result.surfacePoint = (Vector2){(float)surfaceX, sensorPos.y};
+            result.globalContactPoint = (Vector2){(float)surfaceX, sensorPos.y};
 
             return result;
         }
@@ -364,7 +470,7 @@ static SensorResult CheckRightWallSensor(Vector2 sensorPos) {
             result.tileY = tileY;
             result.tileId = tileId;
             result.angle = (uint8_t)TILESET_WIDTH_ANGLES[tileId];
-            result.surfacePoint = (Vector2){(float)surfaceX, sensorPos.y};
+            result.globalContactPoint = (Vector2){(float)surfaceX, sensorPos.y};
         }
     }
 
@@ -409,7 +515,7 @@ static SensorResult CheckLeftWallSensor(Vector2 sensorPos) {
             result.tileY = tileY;
             result.tileId = tileId;
             result.angle = (uint8_t)TILESET_WIDTH_ANGLES[tileId];
-            result.surfacePoint = (Vector2){(float)surfaceX, sensorPos.y};
+            result.globalContactPoint = (Vector2){(float)surfaceX, sensorPos.y};
 
             return result;
         }
@@ -434,7 +540,7 @@ static SensorResult CheckLeftWallSensor(Vector2 sensorPos) {
             result.tileY = tileY;
             result.tileId = tileId;
             result.angle = (uint8_t)TILESET_WIDTH_ANGLES[tileId];
-            result.surfacePoint = (Vector2){(float)surfaceX, sensorPos.y};
+            result.globalContactPoint = (Vector2){(float)surfaceX, sensorPos.y};
         }
     }
 
@@ -458,74 +564,12 @@ SensorResult CheckSensor(Vector2 position, Vector2 direction, Directions mode) {
 }
 
 // Check ground sensors A and B, return the winning result
-SensorResult CheckGroundSensors(Vector2 playerPos, float widthRadius, float heightRadius,
-                                 Directions mode, uint8_t currentAngle,
+SensorResult CheckGroundSensors(Vector2 *playerPos, Vector2 *sensorAPos, Vector2 *sensorBPos,
                                  SensorResult* outSensorA, SensorResult* outSensorB) {
-    // Calculate sensor positions based on collision mode
-    Vector2 sensorAPos, sensorBPos;
-    float angleRad = AngleByteToRadians(currentAngle);
-
-    // Rotate sensor offsets by current angle
-    float cosA = cosf(angleRad);
-    float sinA = sinf(angleRad);
-
-    // Base offsets (floor mode)
-    float offsetX = widthRadius;
-    float offsetY = heightRadius;
-
-    switch (mode) {
-        case DOWN:
-            // A is left, B is right, both at bottom
-            sensorAPos = (Vector2){
-                playerPos.x - widthRadius,
-                playerPos.y + heightRadius
-            };
-            sensorBPos = (Vector2){
-                playerPos.x + widthRadius,
-                playerPos.y + heightRadius
-            };
-            break;
-
-        case RIGHT:
-            // Sensors rotated 90° CW - now on right side
-            sensorAPos = (Vector2){
-                playerPos.x + heightRadius,
-                playerPos.y - widthRadius
-            };
-            sensorBPos = (Vector2){
-                playerPos.x + heightRadius,
-                playerPos.y + widthRadius
-            };
-            break;
-
-        case UP:
-            // Sensors rotated 180° - now on top
-            sensorAPos = (Vector2){
-                playerPos.x + widthRadius,
-                playerPos.y - heightRadius
-            };
-            sensorBPos = (Vector2){
-                playerPos.x - widthRadius,
-                playerPos.y - heightRadius
-            };
-            break;
-
-        case LEFT:
-            // Sensors rotated 270° - now on left side
-            sensorAPos = (Vector2){
-                playerPos.x - heightRadius,
-                playerPos.y + widthRadius
-            };
-            sensorBPos = (Vector2){
-                playerPos.x - heightRadius,
-                playerPos.y - widthRadius
-            };
-            break;
-    }
 
     // Perform sensor checks
-    SensorResult resultA = CheckSensor(sensorAPos, (Vector2){0, 1}, mode);
-    SensorResult resultB = CheckSensor(sensorBPos, (Vector2){0, 1}, mode);
+    SensorResult resultA = CheckAnySensor(playerPos, sensorAPos, DOWN);
+    SensorResult resultB = CheckAnySensor(playerPos, sensorBPos, DOWN);
 
     // Output individual results if requested
     if (outSensorA) *outSensorA = resultA;
@@ -636,140 +680,149 @@ SensorResult CheckCeilingSensors(Vector2 playerPos, float widthRadius, float hei
 }
 
 // Check wall/push sensors E and F
-void CheckWallSensors(Vector2 playerPos, float pushRadius, Directions mode,
+void CheckWallSensors(Vector2 playerPos, Vector2 *sensorEPos, Vector2 *sensorFPos,
                       SensorResult* outSensorE, SensorResult* outSensorF) {
-    // Push sensors are always at player center height
-    // E is left, F is right (in floor mode)
-    Vector2 sensorEPos, sensorFPos;
-
-    switch (mode) {
-        case DOWN:
-        case UP:
-            sensorEPos = (Vector2){playerPos.x - pushRadius, playerPos.y};
-            sensorFPos = (Vector2){playerPos.x + pushRadius, playerPos.y};
-            break;
-
-        case RIGHT:
-        case LEFT:
-            sensorEPos = (Vector2){playerPos.x, playerPos.y - pushRadius};
-            sensorFPos = (Vector2){playerPos.x, playerPos.y + pushRadius};
-            break;
-    }
 
     // E checks left wall, F checks right wall
-    SensorResult resultE = CheckLeftWallSensor(sensorEPos);
-    SensorResult resultF = CheckRightWallSensor(sensorFPos);
+    //SensorResult resultE = CheckLeftWallSensor(sensorEPos);
+    //SensorResult resultF = CheckRightWallSensor(sensorFPos);
+    SensorResult resultE = CheckAnySensor(&playerPos, sensorEPos, LEFT);
+    SensorResult resultF = CheckAnySensor(&playerPos, sensorFPos, RIGHT);
 
     if (outSensorE) *outSensorE = resultE;
     if (outSensorF) *outSensorF = resultF;
 }
 
-SensorResult CheckAnySensor(Vector2 origin, Vector2 target, Directions mode){
+//Origin is an absolute coordinate, target is relative to origin, mode is which directions to check
+SensorResult CheckAnySensor(Vector2 *origin, Vector2 *target, Directions mode){
     SensorResult result = {0};
     result.found = false;
     result.distance = TILE_SIZE; // Default to "not found" distance
 
-    Vector2 sensorPos = Vector2Add(origin, target);
+    Vector2 sensorPos = Vector2Add(*origin, *target);
 
-    // Get the tile we're in
-    int tileX  = (int) sensorPos.x / TILE_SIZE;
-    int tileY  = (int) sensorPos.y / TILE_SIZE;
-
-    int localX = (int) sensorPos.x % TILE_SIZE;
-    int localY = (int) sensorPos.y % TILE_SIZE;
-
-    // Handle negative coordinates
-    if (sensorPos.x < 0) {
-        tileX--;
-        localX = TILE_SIZE + ((int)sensorPos.x % TILE_SIZE);
-        if (localX == TILE_SIZE) { localX = 0; tileX++; }
-    }
-    if (sensorPos.y < 0) {
-        tileY--;
-        localY = TILE_SIZE + ((int)sensorPos.y % TILE_SIZE);
-        if (localY == TILE_SIZE) { localY = 0; tileY++; }
-    }
+    // Get the coordinates to the tile we're in
+    int tileCoordX = (int) sensorPos.x / TILE_SIZE;
+    int tileCoordY = (int) sensorPos.y / TILE_SIZE;
 
     bool flipH, flipV;
-    int tileId = GetTileAtPosition((int)sensorPos.x, (int)sensorPos.y, &flipH, &flipV);
+    int tileId = LocalGetTileAtPosition(tileCoordX, tileCoordY, &flipH, &flipV);
 
     if (IsTileSolid(tileId)) {
-        if (mode & (UP | DOWN)){
+        if (mode & ANY_Y){
+            // local offsets of the sensor within the tile
+            int localX = (int) sensorPos.x % TILE_SIZE;
 
-        }
+            // Handle negative coordinates
+            if (sensorPos.x < 0) {
+                tileCoordX -= 1;
+                localX += TILE_SIZE;
 
-        int height =  GetTileHeightAtX(tileId, localX, flipH, flipV);
-
-        if (height > 0) {
-            // Calculate distance from sensor to surface
-            // Height is measured from bottom of tile
-            int surfaceY;
-            if (flipV) {
-                // Flipped vertically - height is from top
-                surfaceY = tileY * TILE_SIZE + height;
-            } else {
-                // Normal - height is from bottom
-                surfaceY = (tileY + 1) * TILE_SIZE - height;
+                if (localX == TILE_SIZE) { localX = 0; tileCoordX += 1; }
             }
 
-            result.distance = surfaceY - (int)sensorPos.y;
-            result.found = true;
-            result.tileX = tileX;
-            result.tileY = tileY;
-            result.tileId = tileId;
-            result.angle = GetTileAngle(tileId);
-            result.surfacePoint = (Vector2){sensorPos.x, (float)surfaceY};
+            int tileHeight = GetTileHeightAtX(tileId, localX, flipH, flipV);
 
-            // If height is 16 (full tile), check tile above for regression
-            if (height == TILE_SIZE && result.distance >= 0) {
-                // Check tile above
-                int aboveTileId = GetTileAtPosition((int)sensorPos.x, (int)sensorPos.y - TILE_SIZE, &flipH, &flipV);
-                if (IsTileSolid(aboveTileId)) {
-                    int aboveHeight = GetTileHeightAtX(aboveTileId, localX, flipH, flipV);
-                    if (aboveHeight > 0) {
+            if (tileHeight > 0) {
+                // Calculate distance from sensor to surface
+                // Height is measured from bottom of tile
+
+                int surfaceY;
+                if (flipV) {
+                    // Flipped vertically - height is from top
+                    surfaceY = tileCoordY * TILE_SIZE + tileHeight;
+
+                } else {
+                    // Normal - height is from bottom
+                    surfaceY = (tileCoordY + 1) * TILE_SIZE - tileHeight;
+                }
+
+                result.distance = surfaceY - (int)sensorPos.y;
+                result.found = true;
+                result.tileX = tileCoordX;
+                result.tileY = tileCoordY;
+                result.tileId = tileId;
+                result.angle = GetTileAngle(tileId);
+
+                result.globalContactPoint = (Vector2){sensorPos.x, (float)surfaceY};
+
+                //if height is 16, make sure the target isn't clipped *into* the tiles by checking the
+                //contextually next-closest tile to the source position.
+                if (tileHeight == TILE_SIZE && result.distance >= 0) {
+                    int nextTileID;
+                    int nextTileHeight;
+
+
+                    if (mode & UP){
+                        //Check the tile above the player in space, since they're on the ceiling
+                        nextTileID = LocalGetTileAtPosition(tileCoordX, tileCoordY - 1, &flipH, &flipV);
+                        nextTileHeight = GetTileHeightAtX(nextTileID, localX, flipH, flipV);
+                    }
+                    if (mode & DOWN){
+                        //Check the tile below the player in space, since they're on the ground
+                        nextTileID = LocalGetTileAtPosition(tileCoordX, tileCoordY + 1, &flipH, &flipV);
+                        nextTileHeight = GetTileHeightAtX(nextTileID, localX, flipH, flipV);
+                    }
+
+                    if (nextTileHeight > 0) {
                         int aboveSurfaceY;
                         if (flipV) {
-                            aboveSurfaceY = (tileY - 1) * TILE_SIZE + aboveHeight;
+                            aboveSurfaceY = (tileCoordY - 1) * TILE_SIZE + nextTileHeight;
                         } else {
-                            aboveSurfaceY = tileY * TILE_SIZE - aboveHeight;
+                            aboveSurfaceY = tileCoordY * TILE_SIZE - nextTileHeight;
                         }
                         result.distance = aboveSurfaceY - (int)sensorPos.y;
-                        result.tileY = tileY - 1;
-                        result.tileId = aboveTileId;
-                        result.angle = GetTileAngle(aboveTileId);
-                        result.surfacePoint.y = (float)aboveSurfaceY;
+                        result.tileY = tileCoordY - 1;
+                        result.tileId = nextTileID;
+                        result.angle = GetTileAngle(nextTileID);
+                        result.globalContactPoint.y = (float)aboveSurfaceY;
                     }
                 }
+
+                // If height is 16 (full tile), check tile above for regression
+                if (tileHeight == TILE_SIZE && result.distance >= 0) {
+                    // Check tile above
+                    int aboveTileId = GetTileAtPosition((int)sensorPos.x, (int)sensorPos.y - TILE_SIZE, &flipH, &flipV);
+
+                    if (IsTileSolid(aboveTileId)) {
+
+                        int aboveHeight = GetTileHeightAtX(aboveTileId, localX, flipH, flipV);
+                        if (aboveHeight > 0) {
+                            int aboveSurfaceY;
+                            if (flipV) {
+                                aboveSurfaceY = (tileCoordY - 1) * TILE_SIZE + aboveHeight;
+                            } else {
+                                aboveSurfaceY = tileCoordY * TILE_SIZE - aboveHeight;
+                            }
+                            result.distance = aboveSurfaceY - (int)sensorPos.y;
+                            result.tileY = tileCoordY - 1;
+                            result.tileId = aboveTileId;
+                            result.angle = GetTileAngle(aboveTileId);
+                            result.globalContactPoint.y = (float)aboveSurfaceY;
+                        }
+                    }
+                }
+
+                return result;
             }
 
-            return result;
         }
 
-        int width = GetTileWidthAtY(tileId, localX, flipH, flipV);
-    }
+        if(mode & ANY_X){
+            // local offsets of the sensor within the tile
+            int localY = (int) sensorPos.y % TILE_SIZE;
 
-    // No solid tile at sensor position - check tile below (extension)
-    tileId = GetTileAtPosition((int)sensorPos.x, (int)sensorPos.y + TILE_SIZE, &flipH, &flipV);
+            // Handle negative coordinates
+            if (sensorPos.y < 0) {
+                tileCoordX -= 1;
+                localY += TILE_SIZE;
 
-    if (IsTileSolid(tileId)) {
-        int height = GetTileHeightAtX(tileId, localX, flipH, flipV);
-
-        if (height > 0) {
-            int surfaceY;
-            if (flipV) {
-                surfaceY = (tileY + 1) * TILE_SIZE + height;
-            } else {
-                surfaceY = (tileY + 2) * TILE_SIZE - height;
+                if (localY == TILE_SIZE) { localY = 0; tileCoordY += 1; }
             }
 
-            result.distance = surfaceY - (int)sensorPos.y;
-            result.found = true;
-            result.tileX = tileX;
-            result.tileY = tileY + 1;
-            result.tileId = tileId;
-            result.angle = GetTileAngle(tileId);
-            result.surfacePoint = (Vector2){sensorPos.x, (float)surfaceY};
+
         }
+
     }
 
     return result;

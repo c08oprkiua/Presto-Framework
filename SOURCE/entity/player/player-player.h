@@ -3,11 +3,9 @@
 #define PLAYER_PLAYER_H
 
 #include "raylib.h"
-#include "player-var.h"
 #include "../entity-sprite_object.h"
 #include "../../managers/managers-animation.h"
 #include "../../data/data-data.h"
-#include <math.h>
 #include <stdint.h>
 
 typedef enum Directions {
@@ -19,12 +17,25 @@ typedef enum Directions {
 } Directions;
 
 typedef enum ComboDirections {
-    DOWN_RIGHT = DOWN | RIGHT,
-    UP_RIGHT = UP | RIGHT,
-    UP_LEFT = UP | LEFT,
     DOWN_LEFT = DOWN | LEFT,
-    ANY = DOWN | UP | LEFT | RIGHT
+    DOWN_RIGHT = DOWN | RIGHT,
+    UP_LEFT = UP | LEFT,
+    UP_RIGHT = UP | RIGHT,
+
+    ANY_X = LEFT | RIGHT,
+    ANY_Y = UP | DOWN,
+
+    ANY = ANY_X | ANY_Y,
 } ComboDirections;
+
+typedef struct {
+    Vector2 groundA;   // Left ground sensor
+    Vector2 groundB;   // Right ground sensor
+    Vector2 ceilingC;  // Left ceiling sensor
+    Vector2 ceilingD;  // Right ceiling sensor
+    Vector2 pushE;     // Left wall sensor
+    Vector2 pushF;     // Right wall sensor
+} PlayerSensors;
 
 // ========== Player Structures and Enums ==========
 // Player State
@@ -198,10 +209,8 @@ typedef struct {
 // Player Function Prototypes
 void InitPlayer(Player* player, PlayerType type, Vector2 startPosition);
 void UpdatePlayer(Player* player, float deltaTime);
-void DrawPlayer(const Player* player);
+void DrawPlayer(const Player* player, PlayerSensors *sensors);
 void SetPlayerAnimation(Player* player, PlayerAnimationState newState);
-//Get the calculated sensor positions for the player based on their current mode.
-void GetPlayerSensorPositions(Player *player, Vector2 *groundSensorA, Vector2 *groundSensorB, Vector2 *wallSensor);
 void HandlePlayerInput(Player* player);
 void UpdatePlayerState(Player* player);
 void UpdatePlayerAnimation(Player* player, float deltaTime);

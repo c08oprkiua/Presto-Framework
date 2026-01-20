@@ -3,23 +3,26 @@
 #define PLAYER_COLLISION_H
 
 #include "raylib.h"
-#include "player-var.h"
 #include "player-player.h"
-#include "../../data/collision_data/collision-generated_heightmaps.h"
-#include "../../data/collision_data/collision-generated_widthmaps.h"
-#include "../../data/collision_data/collision-generated_tile_angles.h"
 #include <stdint.h>
 #include <stdbool.h>
 
 // Sensor result from a single sensor check
 typedef struct {
-    bool found;           // Did we find a tile?
-    int distance;         // Distance to surface (negative = inside, 0 = touching, positive = gap)
-    uint8_t angle;        // Angle of the tile found
-    int tileX;            // Tile coordinates
+    // Did we find a tile?
+    bool found;
+    //Distance to contact point (negative = inside, 0 = touching, positive = gap)
+    int distance;
+    // Angle of the tile found
+    uint8_t angle;
+    // Tile x coordinate on the tilemap
+    int tileX;
+    // Tile y coordinate on the tilemap
     int tileY;
-    int tileId;           // The tile ID found
-    Vector2 surfacePoint; // Exact point on the surface
+    // The tile ID found
+    int tileId;
+    //Global coordinates of the contact point.
+    Vector2 globalContactPoint;
 } SensorResult;
 
 // All sensor results for a frame
@@ -31,6 +34,8 @@ typedef struct {
     SensorResult pushE;     // Left wall sensor
     SensorResult pushF;     // Right wall sensor
 } PlayerSensorResults;
+
+
 
 // Level collision data reference (set by game screen)
 typedef struct {
@@ -54,6 +59,10 @@ float AngleByteToRadians(uint8_t angleByte);
 // Convert angle byte to degrees
 float AngleByteToDegrees(uint8_t angleByte);
 
+//Get the calculated sensor positions for the player based on their current mode.
+void GetPlayerSensorPositions(Player *player, PlayerSensors *sensors);
+
+
 // Single sensor check - returns distance to surface
 // position: sensor world position
 // direction: unit vector pointing in sensor direction
@@ -62,8 +71,7 @@ SensorResult CheckSensor(Vector2 position, Vector2 direction, Directions mode);
 
 // Ground sensor check (sensors A and B)
 // Returns the winning sensor result (closest surface)
-SensorResult CheckGroundSensors(Vector2 playerPos, float widthRadius, float heightRadius,
-                                 Directions mode, uint8_t currentAngle,
+SensorResult CheckGroundSensors(Vector2 *playerPos, Vector2 *sensorAPos, Vector2 *sensorBPos,
                                  SensorResult* outSensorA, SensorResult* outSensorB);
 
 // Ceiling sensor check (sensors C and D)
@@ -72,12 +80,12 @@ SensorResult CheckCeilingSensors(Vector2 playerPos, float widthRadius, float hei
                                   SensorResult* outSensorC, SensorResult* outSensorD);
 
 // Wall/push sensor check (sensors E and F)
-void CheckWallSensors(Vector2 playerPos, float pushRadius, Directions mode,
+void CheckWallSensors(Vector2 playerPos, Vector2 *sensorEPos, Vector2 *sensorFPos,
                       SensorResult* outSensorE, SensorResult* outSensorF);
 
 //Check any sensor based on an origin position and a target position.
 //mode is used to determine if it is checking the heightmap, widthmap, or both.
-SensorResult CheckAnySensor(Vector2 origin, Vector2 target, Directions mode);
+SensorResult CheckAnySensor(Vector2 *origin, Vector2 *target, Directions mode);
 
 // Get height at a specific X position within a tile
 int GetTileHeightAtX(int tileId, int localX, bool flipH, bool flipV);
