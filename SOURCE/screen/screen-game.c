@@ -286,7 +286,7 @@ void GameScreen_Draw(void) {
 
     // Draw player
     if (playerInitialized) {
-        //DrawPlayer(&player);
+        DrawPlayer(&player);
     }
 
     // Draw grid for debugging (optional)

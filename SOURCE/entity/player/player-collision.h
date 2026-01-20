@@ -35,8 +35,6 @@ typedef struct {
     SensorResult pushF;     // Right wall sensor
 } PlayerSensorResults;
 
-
-
 // Level collision data reference (set by game screen)
 typedef struct {
     int** tileData;
@@ -62,30 +60,12 @@ float AngleByteToDegrees(uint8_t angleByte);
 //Get the calculated sensor positions for the player based on their current mode.
 void GetPlayerSensorPositions(Player *player, PlayerSensors *sensors);
 
-
-// Single sensor check - returns distance to surface
-// position: sensor world position
-// direction: unit vector pointing in sensor direction
-// mode: current collision mode
-SensorResult CheckSensor(Vector2 position, Vector2 direction, Directions mode);
-
-// Ground sensor check (sensors A and B)
-// Returns the winning sensor result (closest surface)
-SensorResult CheckGroundSensors(Vector2 *playerPos, Vector2 *sensorAPos, Vector2 *sensorBPos,
+// Check two sensors, and returns the closer colliding of the two, or a zero-initialized SensorResult if neither collide.
+SensorResult CheckCloserSensor(Vector2 *playerPos, Vector2 *sensorAPos, Vector2 *sensorBPos,
                                  SensorResult* outSensorA, SensorResult* outSensorB);
 
-// Ceiling sensor check (sensors C and D)
-SensorResult CheckCeilingSensors(Vector2 playerPos, float widthRadius, float heightRadius,
-                                  Directions mode, uint8_t currentAngle,
-                                  SensorResult* outSensorC, SensorResult* outSensorD);
-
-// Wall/push sensor check (sensors E and F)
-void CheckWallSensors(Vector2 playerPos, Vector2 *sensorEPos, Vector2 *sensorFPos,
-                      SensorResult* outSensorE, SensorResult* outSensorF);
-
 //Check any sensor based on an origin position and a target position.
-//mode is used to determine if it is checking the heightmap, widthmap, or both.
-SensorResult CheckAnySensor(Vector2 *origin, Vector2 *target, Directions mode);
+SensorResult CheckAnySensor(Vector2 *origin, Vector2 *target);
 
 // Get height at a specific X position within a tile
 int GetTileHeightAtX(int tileId, int localX, bool flipH, bool flipV);
@@ -98,12 +78,5 @@ int GetTileAtPosition(int worldX, int worldY, bool* flipH, bool* flipV);
 
 // Check if a tile is solid (non-zero)
 bool IsTileSolid(int tileId);
-
-
-// Regression check - when sensor finds full tile, check one tile further
-SensorResult CheckSensorWithRegression(Vector2 position, Vector2 direction, Directions mode);
-
-// Extension check - when sensor finds empty tile, check one tile further
-SensorResult CheckSensorWithExtension(Vector2 position, Vector2 direction, Directions mode);
 
 #endif // PLAYER_COLLISION_H

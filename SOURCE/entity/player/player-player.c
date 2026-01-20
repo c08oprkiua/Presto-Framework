@@ -414,34 +414,9 @@ static void UpdatePosition(Player* player) {
 // Collision Detection
 // ============================================================================
 
-static void HandleGroundCollision(Player* player, Vector2 *groundA, Vector2 *groundB) {
+static void HandleGroundCollision(Player* player) {
     // Perform sensor checks
-    SensorResult resultA = CheckAnySensor(&player->position, groundA, DOWN);
-    SensorResult resultB = CheckAnySensor(&player->position, groundB, DOWN);
-
-    SensorResult ground = {0};
-
-    // Determine winner - smallest distance wins, A wins ties
-    if(resultA.found && resultB.found){
-        // Both found - compare distances (SPG: if equal, A wins)
-        if (resultA.distance <= resultB.distance) {
-            ground = resultA;
-        } else {
-            ground = resultB;
-        }
-    }
-    else if(resultA.found){
-        ground = resultA;
-    }
-    else if(resultB.found){
-        ground = resultB;
-    }
-    else {
-        // Neither found anything
-        ground.found = false;
-        //ground.distance = TILE_SIZE * 2; // Max distance
-        ground.distance = 16 * 2; // Max distance
-    }
+    SensorResult ground = CheckCloserSensor(&player->position, &player->sensors.groundA, &player->sensors.groundB, NULL, NULL);
 
     if (ground.found && ground.distance <= 14 && ground.distance >= -14) {
         // Snap to ground
@@ -476,14 +451,14 @@ static void HandleGroundCollision(Player* player, Vector2 *groundA, Vector2 *gro
     }
 }
 
-static void HandleAirCollision(Player* player, PlayerSensors *sensors) {
+static void HandleAirCollision(Player* player) {
     // Ground sensors (moving mostly down)
     if (player->velocity.y >= 0) {
         SensorResult sensorA, sensorB;
-        SensorResult ground = CheckGroundSensors(
+        SensorResult ground = CheckCloserSensor(
             &player->position,
-            &sensors->groundA,
-            &sensors->groundB,
+            &player->sensors.groundA,
+            &player->sensors.groundB,
             &sensorA, &sensorB
         );
 
@@ -534,12 +509,10 @@ static void HandleAirCollision(Player* player, PlayerSensors *sensors) {
 
         SensorResult sensorC, sensorD;
 
-        SensorResult ceiling = CheckCeilingSensors(
-            player->position,
-            player->widthRadius,
-            player->heightRadius,
-            DOWN,
-            0,
+        SensorResult ceiling = CheckCloserSensor(
+            &player->position,
+            &player->sensors.ceilingC,
+            &player->sensors.ceilingD,
             &sensorC, &sensorD
         );
 
@@ -550,9 +523,8 @@ static void HandleAirCollision(Player* player, PlayerSensors *sensors) {
     }
 
     // Wall sensors
-    SensorResult sensorE, sensorF;
-
-    CheckWallSensors(player->position, &sensors->pushE, &sensors->pushF, &sensorE, &sensorF);
+    SensorResult sensorE = CheckAnySensor(&player->position, &player->sensors.pushE);
+    SensorResult sensorF = CheckAnySensor(&player->position, &player->sensors.pushF);
 
     if (sensorE.found && sensorE.distance <= 0 && player->velocity.x < 0) {
         player->position.x -= sensorE.distance;
@@ -565,11 +537,11 @@ static void HandleAirCollision(Player* player, PlayerSensors *sensors) {
     }
 }
 
-static void HandleWallCollision(Player* player, Vector2 *sensorEPos, Vector2 *sensorFPos) {
+static void HandleWallCollision(Player* player) {
     if (!player->isOnGround) return;
 
-    SensorResult sensorE, sensorF;
-    CheckWallSensors(player->position, sensorEPos, sensorFPos, &sensorE, &sensorF);
+    SensorResult sensorE = CheckAnySensor(&player->position, &player->sensors.pushE);
+    SensorResult sensorF = CheckAnySensor(&player->position, &player->sensors.pushF);
 
     if (sensorE.found && sensorE.distance < 0 && player->groundSpeed < 0) {
         player->position.x -= sensorE.distance;
@@ -717,10 +689,6 @@ void UpdatePlayerAnimation(Player* player, float deltaTime) {
 void UpdatePlayer(Player* player, float deltaTime) {
     if (player->isDead) return;
 
-    PlayerSensors sensors;
-
-    GetPlayerSensorPositions(player, &sensors);
-
     // 1. Handle input
     HandlePlayerInput(player);
 
@@ -737,28 +705,28 @@ void UpdatePlayer(Player* player, float deltaTime) {
         }
 
         UpdatePosition(player);
-        HandleWallCollision(player, &sensors.pushE, &sensors.pushF);
-        HandleGroundCollision(player, &sensors.groundA, &sensors.groundB);
+        GetPlayerSensorPositions(player, &player->sensors);
+        HandleWallCollision(player);
+        HandleGroundCollision(player);
 
     } else {
         HandleVariableJump(player);
         UpdateAirMovement(player);
         UpdatePosition(player);
+        GetPlayerSensorPositions(player, &player->sensors);
         ApplyGravity(player);
-        HandleAirCollision(player, &sensors);
+        HandleAirCollision(player);
     }
 
     UpdatePlayerState(player);
     UpdatePlayerAnimation(player, deltaTime);
-
-    DrawPlayer(player, &sensors);
 }
 
 // ============================================================================
 // Drawing
 // ============================================================================
 
-void DrawPlayer(const Player* player, PlayerSensors *sensors) {
+void DrawPlayer(const Player* player) {
     float width = player->widthRadius * 2;
     float height = player->heightRadius * 2;
 
@@ -782,21 +750,21 @@ void DrawPlayer(const Player* player, PlayerSensors *sensors) {
     if (player->facing > 0){
         DrawLineV(
             player->position,
-            sensors->pushF,
+            player->sensors.pushF,
             YELLOW
         );
     }
     else if (player->facing < 0){
         DrawLineV(
             player->position,
-            sensors->pushE,
+            player->sensors.pushE,
             YELLOW
         );
     }
 
     if (player->isOnGround) {
-        DrawCircleV(sensors->groundA, 2, MAGENTA);
-        DrawCircleV(sensors->groundB, 2, MAGENTA);
+        DrawCircleV(player->sensors.groundA, 2, MAGENTA);
+        DrawCircleV(player->sensors.groundB, 2, MAGENTA);
     }
 }
 

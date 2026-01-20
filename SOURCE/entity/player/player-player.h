@@ -144,6 +144,7 @@ typedef struct {
     float pushRadius;           // Radius for wall push sensors (usually 10)
     float defaultWidthRadius;   // Default width (for restoring after roll)
     float defaultHeightRadius;  // Default height (for restoring after roll)
+    PlayerSensors sensors;
 
     // State flags
     bool isOnGround;
@@ -209,7 +210,7 @@ typedef struct {
 // Player Function Prototypes
 void InitPlayer(Player* player, PlayerType type, Vector2 startPosition);
 void UpdatePlayer(Player* player, float deltaTime);
-void DrawPlayer(const Player* player, PlayerSensors *sensors);
+void DrawPlayer(const Player* player);
 void SetPlayerAnimation(Player* player, PlayerAnimationState newState);
 void HandlePlayerInput(Player* player);
 void UpdatePlayerState(Player* player);
