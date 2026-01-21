@@ -9,9 +9,7 @@
 */
 
 #pragma once
-#include "raylib.h"
 #include <stdint.h>
-#include <math.h>
 
 // ==== Sonic ====
 // Player box dimensions

@@ -3,20 +3,39 @@
 #define PLAYER_PLAYER_H
 
 #include "raylib.h"
-#include "player-var.h"
 #include "../entity-sprite_object.h"
 #include "../../managers/managers-animation.h"
 #include "../../data/data-data.h"
-#include <math.h>
 #include <stdint.h>
 
 // Collision mode based on ground angle (SPG)
-typedef enum CollisionMode {
-    MODE_FLOOR,      // 0-45° and 315-360° - sensors point down
-    MODE_RIGHT_WALL, // 46-134° - sensors point right
-    MODE_CEILING,    // 135-225° - sensors point up
-    MODE_LEFT_WALL   // 226-314° - sensors point left
-} CollisionMode;
+// DOWN is 0-45° and 315-360°
+// RIGHT is 46-134°
+// UP is 135-225°
+// LEFT is 226-314°
+
+//Generic direction types.
+//Up and down are even numbers, left and right are odd, for quick direction checks.
+typedef enum Directions {
+    LEFT = 1,
+    UP = 2,
+    RIGHT = 3,
+    DOWN = 4,
+} Directions;
+
+// Player Ground Direction
+typedef enum {
+
+    DOWN_RIGHT = 8,
+    DOWN_LEFT = 12,
+
+    UP_RIGHT,
+
+    UP_LEFT,
+
+
+} ExtDirections;
+
 
 // ========== Player Structures and Enums ==========
 // Player State
@@ -102,19 +121,6 @@ typedef enum {
     ANIM_SURPRISED
 } PlayerAnimationState;
 
-// Player Ground Direction
-typedef enum {
-    NOINPUT,
-    DOWN,
-    DOWN_RIGHT,
-    RIGHT,
-    UP_RIGHT,
-    UP,
-    UP_LEFT,
-    LEFT,
-    DOWN_LEFT
-} PlayerGroundDirection;
-
 // Slip Angle Type
 typedef enum {
     SONIC_1_2_CD,
@@ -130,7 +136,7 @@ typedef struct {
     // SPG ground speed (magnitude along ground surface)
     float groundSpeed;          // Speed along the ground surface
     uint8_t groundAngle;        // Ground angle (0-255, where 0=flat, 64=right wall, 128=ceiling, 192=left wall)
-    CollisionMode collisionMode; // Current collision mode based on angle
+    Directions collisionMode; // Current collision mode based on angle
 
     // Hitbox radii (SPG style)
     float widthRadius;          // Half-width of collision box
@@ -171,7 +177,6 @@ typedef struct {
     PlayerType type;
     PlayerState state;
     PlayerIdleState idleState;
-    PlayerGroundDirection groundDirection;
 
     // Timers
     uint8_t controlLockTimer;   // Frames to lock controls (slope slip)

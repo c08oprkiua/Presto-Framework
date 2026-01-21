@@ -3,6 +3,11 @@
 #include "../../util/util-global.h"
 #include <math.h>
 #include <stdio.h>
+#include "player-var.h"
+#include "player-player.h"
+#include "../../data/collision_data/collision-generated_heightmaps.h"
+#include "../../data/collision_data/collision-generated_widthmaps.h"
+#include "../../data/collision_data/collision-generated_tile_angles.h"
 
 // Tiled flip flags
 #define FLIPPED_HORIZONTALLY_FLAG 0x80000000
@@ -22,7 +27,7 @@ void InitCollisionSystem(int** levelData, int levelWidth, int levelHeight) {
 
 // Get collision mode from angle (SPG four-mode system)
 // Angles are 0-255 where 0=flat ground, 64=right wall, 128=ceiling, 192=left wall
-CollisionMode GetCollisionModeFromAngle(uint8_t angle) {
+Directions GetCollisionModeFromAngle(uint8_t angle) {
     // Convert to degrees for easier understanding: angle * 360 / 256 = angle * 1.40625
     // Floor: 0-45° (0-32) and 315-360° (224-255)
     // Right Wall: 46-134° (33-95)
@@ -30,13 +35,13 @@ CollisionMode GetCollisionModeFromAngle(uint8_t angle) {
     // Left Wall: 226-314° (161-223)
 
     if (angle <= 32 || angle >= 224) {
-        return MODE_FLOOR;
+        return DOWN;
     } else if (angle >= 33 && angle <= 95) {
-        return MODE_RIGHT_WALL;
+        return RIGHT;
     } else if (angle >= 96 && angle <= 160) {
-        return MODE_CEILING;
+        return UP;
     } else {
-        return MODE_LEFT_WALL;
+        return LEFT;
     }
 }
 
@@ -440,15 +445,15 @@ static SensorResult CheckLeftWallSensor(Vector2 sensorPos) {
 }
 
 // Generic sensor check based on collision mode
-SensorResult CheckSensor(Vector2 position, Vector2 direction, CollisionMode mode) {
+SensorResult CheckSensor(Vector2 position, Vector2 direction, Directions mode) {
     switch (mode) {
-        case MODE_FLOOR:
+        case DOWN:
             return CheckFloorSensor(position);
-        case MODE_CEILING:
+        case UP:
             return CheckCeilingSensor(position);
-        case MODE_RIGHT_WALL:
+        case RIGHT:
             return CheckRightWallSensor(position);
-        case MODE_LEFT_WALL:
+        case LEFT:
             return CheckLeftWallSensor(position);
         default:
             return CheckFloorSensor(position);
@@ -457,7 +462,7 @@ SensorResult CheckSensor(Vector2 position, Vector2 direction, CollisionMode mode
 
 // Check ground sensors A and B, return the winning result
 SensorResult CheckGroundSensors(Vector2 playerPos, float widthRadius, float heightRadius,
-                                 CollisionMode mode, uint8_t currentAngle,
+                                 Directions mode, uint8_t currentAngle,
                                  SensorResult* outSensorA, SensorResult* outSensorB) {
     // Calculate sensor positions based on collision mode
     Vector2 sensorAPos, sensorBPos;
@@ -472,7 +477,7 @@ SensorResult CheckGroundSensors(Vector2 playerPos, float widthRadius, float heig
     float offsetY = heightRadius;
 
     switch (mode) {
-        case MODE_FLOOR:
+        case DOWN:
             // A is left, B is right, both at bottom
             sensorAPos = (Vector2){
                 playerPos.x - widthRadius,
@@ -484,7 +489,7 @@ SensorResult CheckGroundSensors(Vector2 playerPos, float widthRadius, float heig
             };
             break;
 
-        case MODE_RIGHT_WALL:
+        case RIGHT:
             // Sensors rotated 90° CW - now on right side
             sensorAPos = (Vector2){
                 playerPos.x + heightRadius,
@@ -496,7 +501,7 @@ SensorResult CheckGroundSensors(Vector2 playerPos, float widthRadius, float heig
             };
             break;
 
-        case MODE_CEILING:
+        case UP:
             // Sensors rotated 180° - now on top
             sensorAPos = (Vector2){
                 playerPos.x + widthRadius,
@@ -508,7 +513,7 @@ SensorResult CheckGroundSensors(Vector2 playerPos, float widthRadius, float heig
             };
             break;
 
-        case MODE_LEFT_WALL:
+        case LEFT:
             // Sensors rotated 270° - now on left side
             sensorAPos = (Vector2){
                 playerPos.x - heightRadius,
@@ -550,12 +555,12 @@ SensorResult CheckGroundSensors(Vector2 playerPos, float widthRadius, float heig
 
 // Check ceiling sensors C and D
 SensorResult CheckCeilingSensors(Vector2 playerPos, float widthRadius, float heightRadius,
-                                  CollisionMode mode, uint8_t currentAngle,
+                                  Directions mode, uint8_t currentAngle,
                                   SensorResult* outSensorC, SensorResult* outSensorD) {
     Vector2 sensorCPos, sensorDPos;
 
     switch (mode) {
-        case MODE_FLOOR:
+        case DOWN:
             // C is left, D is right, both at top
             sensorCPos = (Vector2){
                 playerPos.x - widthRadius,
@@ -567,7 +572,7 @@ SensorResult CheckCeilingSensors(Vector2 playerPos, float widthRadius, float hei
             };
             break;
 
-        case MODE_RIGHT_WALL:
+        case RIGHT:
             sensorCPos = (Vector2){
                 playerPos.x - heightRadius,
                 playerPos.y - widthRadius
@@ -578,7 +583,7 @@ SensorResult CheckCeilingSensors(Vector2 playerPos, float widthRadius, float hei
             };
             break;
 
-        case MODE_CEILING:
+        case UP:
             sensorCPos = (Vector2){
                 playerPos.x + widthRadius,
                 playerPos.y + heightRadius
@@ -589,7 +594,7 @@ SensorResult CheckCeilingSensors(Vector2 playerPos, float widthRadius, float hei
             };
             break;
 
-        case MODE_LEFT_WALL:
+        case LEFT:
             sensorCPos = (Vector2){
                 playerPos.x + heightRadius,
                 playerPos.y + widthRadius
@@ -602,13 +607,13 @@ SensorResult CheckCeilingSensors(Vector2 playerPos, float widthRadius, float hei
     }
 
     // Check as ceiling sensors (upward)
-    CollisionMode ceilingMode;
+    Directions ceilingMode;
     switch (mode) {
-        case MODE_FLOOR: ceilingMode = MODE_CEILING; break;
-        case MODE_RIGHT_WALL: ceilingMode = MODE_LEFT_WALL; break;
-        case MODE_CEILING: ceilingMode = MODE_FLOOR; break;
-        case MODE_LEFT_WALL: ceilingMode = MODE_RIGHT_WALL; break;
-        default: ceilingMode = MODE_CEILING; break;
+        case DOWN: ceilingMode = UP; break;
+        case RIGHT: ceilingMode = LEFT; break;
+        case UP: ceilingMode = DOWN; break;
+        case LEFT: ceilingMode = RIGHT; break;
+        default: ceilingMode = UP; break;
     }
 
     SensorResult resultC = CheckSensor(sensorCPos, (Vector2){0, -1}, ceilingMode);
@@ -634,21 +639,21 @@ SensorResult CheckCeilingSensors(Vector2 playerPos, float widthRadius, float hei
 }
 
 // Check wall/push sensors E and F
-void CheckWallSensors(Vector2 playerPos, float pushRadius, CollisionMode mode,
+void CheckWallSensors(Vector2 playerPos, float pushRadius, Directions mode,
                       SensorResult* outSensorE, SensorResult* outSensorF) {
     // Push sensors are always at player center height
     // E is left, F is right (in floor mode)
     Vector2 sensorEPos, sensorFPos;
 
     switch (mode) {
-        case MODE_FLOOR:
-        case MODE_CEILING:
+        case DOWN:
+        case UP:
             sensorEPos = (Vector2){playerPos.x - pushRadius, playerPos.y};
             sensorFPos = (Vector2){playerPos.x + pushRadius, playerPos.y};
             break;
 
-        case MODE_RIGHT_WALL:
-        case MODE_LEFT_WALL:
+        case RIGHT:
+        case LEFT:
             sensorEPos = (Vector2){playerPos.x, playerPos.y - pushRadius};
             sensorFPos = (Vector2){playerPos.x, playerPos.y + pushRadius};
             break;

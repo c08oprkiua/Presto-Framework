@@ -2,12 +2,8 @@
 #ifndef PLAYER_COLLISION_H
 #define PLAYER_COLLISION_H
 
+#include "entity/player/player-player.h"
 #include "raylib.h"
-#include "player-var.h"
-#include "player-player.h"
-#include "../../data/collision_data/collision-generated_heightmaps.h"
-#include "../../data/collision_data/collision-generated_widthmaps.h"
-#include "../../data/collision_data/collision-generated_tile_angles.h"
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -46,7 +42,7 @@ extern LevelCollision g_LevelCollision;
 void InitCollisionSystem(int** levelData, int levelWidth, int levelHeight);
 
 // Get collision mode from angle (SPG four-mode system)
-CollisionMode GetCollisionModeFromAngle(uint8_t angle);
+Directions GetCollisionModeFromAngle(uint8_t angle);
 
 // Convert angle byte (0-255) to radians
 float AngleByteToRadians(uint8_t angleByte);
@@ -58,21 +54,21 @@ float AngleByteToDegrees(uint8_t angleByte);
 // position: sensor world position
 // direction: unit vector pointing in sensor direction
 // mode: current collision mode
-SensorResult CheckSensor(Vector2 position, Vector2 direction, CollisionMode mode);
+SensorResult CheckSensor(Vector2 position, Vector2 direction, Directions mode);
 
 // Ground sensor check (sensors A and B)
 // Returns the winning sensor result (closest surface)
 SensorResult CheckGroundSensors(Vector2 playerPos, float widthRadius, float heightRadius,
-                                 CollisionMode mode, uint8_t currentAngle,
+                                 Directions mode, uint8_t currentAngle,
                                  SensorResult* outSensorA, SensorResult* outSensorB);
 
 // Ceiling sensor check (sensors C and D)
 SensorResult CheckCeilingSensors(Vector2 playerPos, float widthRadius, float heightRadius,
-                                  CollisionMode mode, uint8_t currentAngle,
+                                  Directions mode, uint8_t currentAngle,
                                   SensorResult* outSensorC, SensorResult* outSensorD);
 
 // Wall/push sensor check (sensors E and F)
-void CheckWallSensors(Vector2 playerPos, float pushRadius, CollisionMode mode,
+void CheckWallSensors(Vector2 playerPos, float pushRadius, Directions mode,
                       SensorResult* outSensorE, SensorResult* outSensorF);
 
 // Get height at a specific X position within a tile
@@ -88,9 +84,9 @@ int GetTileAtPosition(int worldX, int worldY, bool* flipH, bool* flipV);
 bool IsTileSolid(int tileId);
 
 // Regression check - when sensor finds full tile, check one tile further
-SensorResult CheckSensorWithRegression(Vector2 position, Vector2 direction, CollisionMode mode);
+SensorResult CheckSensorWithRegression(Vector2 position, Vector2 direction, Directions mode);
 
 // Extension check - when sensor finds empty tile, check one tile further
-SensorResult CheckSensorWithExtension(Vector2 position, Vector2 direction, CollisionMode mode);
+SensorResult CheckSensorWithExtension(Vector2 position, Vector2 direction, Directions mode);
 
 #endif // PLAYER_COLLISION_H

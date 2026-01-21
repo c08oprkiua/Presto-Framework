@@ -1,8 +1,8 @@
 // Player Script - SPG-accurate Sonic physics implementation
 #include "player-player.h"
+#include "player-var.h"
 #include "player-collision.h"
 #include <string.h>
-#include <stdio.h>
 
 // ============================================================================
 // Animation
@@ -41,7 +41,7 @@ void InitPlayer(Player* player, PlayerType type, Vector2 startPosition) {
     player->defaultWidthRadius = player->widthRadius;
     player->defaultHeightRadius = player->heightRadius;
 
-    player->groundDirection = NOINPUT;
+    //player->groundDirection = NOINPUT;
     player->facing = 1; // Facing right by default
 
     // Initialize sprite and animation manager (NULL for now)
@@ -70,7 +70,7 @@ void InitPlayer(Player* player, PlayerType type, Vector2 startPosition) {
 
     player->groundSpeed = 0.0f;
     player->groundAngle = 0;  // 0-255 byte angle
-    player->collisionMode = MODE_FLOOR;
+    player->collisionMode = DOWN;
 
     player->inputLeft = false;
     player->inputRight = false;
@@ -110,15 +110,15 @@ void HandlePlayerInput(Player* player) {
 
     // Update ground direction for animation purposes
     if (player->inputLeft && player->inputRight) {
-        player->groundDirection = NOINPUT;
+        //player->groundDirection = NOINPUT;
     } else if (player->inputLeft) {
-        player->groundDirection = LEFT;
+        //player->groundDirection = LEFT;
         if (!player->controlLockTimer) player->facing = -1;
     } else if (player->inputRight) {
-        player->groundDirection = RIGHT;
+        //player->groundDirection = RIGHT;
         if (!player->controlLockTimer) player->facing = 1;
     } else {
-        player->groundDirection = NOINPUT;
+        //player->groundDirection = NOINPUT;
     }
 }
 
@@ -332,7 +332,7 @@ static void HandleJump(Player* player) {
 
     // Clear ground state
     player->groundAngle = 0;
-    player->collisionMode = MODE_FLOOR;
+    player->collisionMode = DOWN;
 }
 
 // ============================================================================
@@ -443,7 +443,7 @@ static void HandleGroundCollision(Player* player) {
                     if (angleDeg >= 69 && angleDeg <= 293) {
                         player->isOnGround = false;
                         player->groundAngle = 0;
-                        player->collisionMode = MODE_FLOOR;
+                        player->collisionMode = DOWN;
                     }
                 }
             }
@@ -452,7 +452,7 @@ static void HandleGroundCollision(Player* player) {
         // Lost ground - start falling
         player->isOnGround = false;
         player->groundAngle = 0;
-        player->collisionMode = MODE_FLOOR;
+        player->collisionMode = DOWN;
     }
 }
 
@@ -464,7 +464,7 @@ static void HandleAirCollision(Player* player) {
             player->position,
             player->widthRadius,
             player->heightRadius,
-            MODE_FLOOR,
+            DOWN,
             0,
             &sensorA, &sensorB
         );
@@ -518,7 +518,7 @@ static void HandleAirCollision(Player* player) {
             player->position,
             player->widthRadius,
             player->heightRadius,
-            MODE_FLOOR,
+            DOWN,
             0,
             &sensorC, &sensorD
         );
@@ -531,7 +531,7 @@ static void HandleAirCollision(Player* player) {
 
     // Wall sensors
     SensorResult sensorE, sensorF;
-    CheckWallSensors(player->position, player->pushRadius, MODE_FLOOR, &sensorE, &sensorF);
+    CheckWallSensors(player->position, player->pushRadius, DOWN, &sensorE, &sensorF);
 
     if (sensorE.found && sensorE.distance <= 0 && player->velocity.x < 0) {
         player->position.x -= sensorE.distance;
