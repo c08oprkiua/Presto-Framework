@@ -50,6 +50,24 @@ float AngleByteToDegrees(uint8_t angleByte) {
     return (angleByte / 256.0f) * 360.0f;
 }
 
+// Get tile angle adjusted for flip flags (SPG-accurate)
+// Horizontal flip: mirror angle across vertical axis (256 - angle)
+// Vertical flip: mirror angle across horizontal axis (128 - angle, wrapped)
+static uint8_t GetTileAngleFlipped(int tileId, bool flipH, bool flipV) {
+    uint8_t angle = GetTileAngle(tileId);
+
+    if (flipH) {
+        // Mirror horizontally: negate the angle (256 - angle wraps correctly for uint8_t)
+        angle = (uint8_t)(256 - angle);
+    }
+    if (flipV) {
+        // Mirror vertically: flip across horizontal (128 - angle + 256) % 256
+        angle = (uint8_t)(128 - angle);
+    }
+
+    return angle;
+}
+
 // Get tile at world position with flip flags
 int GetTileAtPosition(int worldX, int worldY, bool* flipH, bool* flipV) {
     if (!g_LevelCollision.tileData) return 0;
@@ -168,7 +186,7 @@ static SensorResult CheckFloorSensor(Vector2 sensorPos) {
             result.tileX = tileX;
             result.tileY = tileY;
             result.tileId = tileId;
-            result.angle = GetTileAngle(tileId);
+            result.angle = GetTileAngleFlipped(tileId, flipH, flipV);
             result.surfacePoint = (Vector2){sensorPos.x, (float)surfaceY};
 
             // If height is 16 (full tile), check tile above for regression
@@ -187,7 +205,7 @@ static SensorResult CheckFloorSensor(Vector2 sensorPos) {
                         result.distance = aboveSurfaceY - (int)sensorPos.y;
                         result.tileY = tileY - 1;
                         result.tileId = aboveTileId;
-                        result.angle = GetTileAngle(aboveTileId);
+                        result.angle = GetTileAngleFlipped(aboveTileId, flipH, flipV);
                         result.surfacePoint.y = (float)aboveSurfaceY;
                     }
                 }
@@ -197,7 +215,36 @@ static SensorResult CheckFloorSensor(Vector2 sensorPos) {
         }
     }
 
-    // No solid tile at sensor position - check tile below (extension)
+    // No solid tile at sensor position - first check tile ABOVE (for stepping up onto platforms)
+    tileId = GetTileAtPosition((int)sensorPos.x, (int)sensorPos.y - TILE_SIZE, &flipH, &flipV);
+
+    if (IsTileSolid(tileId)) {
+        int height = GetTileHeightAtX(tileId, localX, flipH, flipV);
+
+        if (height > 0) {
+            int surfaceY;
+            if (flipV) {
+                surfaceY = (tileY - 1) * TILE_SIZE + height;
+            } else {
+                surfaceY = tileY * TILE_SIZE - height;
+            }
+
+            // Only use this if the surface is within reach (not too far above)
+            int dist = surfaceY - (int)sensorPos.y;
+            if (dist >= -TILE_SIZE && dist <= 0) {
+                result.distance = dist;
+                result.found = true;
+                result.tileX = tileX;
+                result.tileY = tileY - 1;
+                result.tileId = tileId;
+                result.angle = GetTileAngleFlipped(tileId, flipH, flipV);
+                result.surfacePoint = (Vector2){sensorPos.x, (float)surfaceY};
+                return result;
+            }
+        }
+    }
+
+    // Check tile below (extension for stepping down)
     tileId = GetTileAtPosition((int)sensorPos.x, (int)sensorPos.y + TILE_SIZE, &flipH, &flipV);
 
     if (IsTileSolid(tileId)) {
@@ -216,7 +263,7 @@ static SensorResult CheckFloorSensor(Vector2 sensorPos) {
             result.tileX = tileX;
             result.tileY = tileY + 1;
             result.tileId = tileId;
-            result.angle = GetTileAngle(tileId);
+            result.angle = GetTileAngleFlipped(tileId, flipH, flipV);
             result.surfacePoint = (Vector2){sensorPos.x, (float)surfaceY};
         }
     }
@@ -263,7 +310,7 @@ static SensorResult CheckCeilingSensor(Vector2 sensorPos) {
             result.tileX = tileX;
             result.tileY = tileY;
             result.tileId = tileId;
-            result.angle = GetTileAngle(tileId);
+            result.angle = GetTileAngleFlipped(tileId, flipH, flipV);
             result.surfacePoint = (Vector2){sensorPos.x, (float)surfaceY};
 
             return result;
@@ -289,7 +336,7 @@ static SensorResult CheckCeilingSensor(Vector2 sensorPos) {
             result.tileX = tileX;
             result.tileY = tileY - 1;
             result.tileId = tileId;
-            result.angle = GetTileAngle(tileId);
+            result.angle = GetTileAngleFlipped(tileId, flipH, flipV);
             result.surfacePoint = (Vector2){sensorPos.x, (float)surfaceY};
         }
     }
