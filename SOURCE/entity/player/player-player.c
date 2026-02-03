@@ -284,8 +284,7 @@ static void UpdateRollingMovement(Player* player) {
         player->isRolling = false;
         player->widthRadius = player->defaultWidthRadius;
         player->heightRadius = player->defaultHeightRadius;
-        // Pop up to account for hitbox change
-        player->position.y -= (player->defaultHeightRadius - 14);
+        // Don't shift position - ground collision will handle it
     }
 }
 
@@ -394,6 +393,10 @@ static void UpdatePosition(Player* player) {
 
 static void HandleGroundCollision(Player* player) {
     SensorResult sensorA, sensorB;
+
+    // Tighter tolerance for more precise snapping
+    float snapTolerance = 16.0f;
+
     SensorResult ground = CheckGroundSensors(
         player->position,
         player->widthRadius,
@@ -403,9 +406,25 @@ static void HandleGroundCollision(Player* player) {
         &sensorA, &sensorB
     );
 
-    if (ground.found && ground.distance <= 14 && ground.distance >= -14) {
-        // Snap to ground
-        player->position.y += ground.distance;
+    if (ground.found && ground.distance <= snapTolerance && ground.distance >= -snapTolerance) {
+        // Snap using CURRENT mode (mode updates for next frame)
+        // This is more stable than trying to predict the new mode
+        switch (player->collisionMode) {
+            case MODE_FLOOR:
+                player->position.y += ground.distance;
+                break;
+            case MODE_RIGHT_WALL:
+                player->position.x += ground.distance;
+                break;
+            case MODE_CEILING:
+                player->position.y -= ground.distance;
+                break;
+            case MODE_LEFT_WALL:
+                player->position.x -= ground.distance;
+                break;
+        }
+
+        // Update angle and mode for next frame
         player->groundAngle = ground.angle;
         player->collisionMode = GetCollisionModeFromAngle(ground.angle);
 
@@ -431,12 +450,21 @@ static void HandleGroundCollision(Player* player) {
                 }
             }
         }
-    } else if (ground.distance > 14 || !ground.found) {
+    } else if (ground.distance > snapTolerance || !ground.found) {
         // Lost ground - start falling
         player->isOnGround = false;
         player->groundAngle = 0;
         player->collisionMode = MODE_FLOOR;
     }
+}
+
+// Check if an angle represents a wall-like surface (not a slope)
+// Walls are angles near 64 (right wall) or 192 (left wall)
+// Allow ~35 degrees of tolerance from pure vertical
+static bool IsWallAngle(uint8_t angle) {
+    // Right wall: 64 ± 25 (angles 39-89, roughly 55° to 125°)
+    // Left wall: 192 ± 25 (angles 167-217, roughly 235° to 305°)
+    return (angle >= 39 && angle <= 89) || (angle >= 167 && angle <= 217);
 }
 
 static void HandleAirCollision(Player* player) {
@@ -461,23 +489,30 @@ static void HandleAirCollision(Player* player) {
             player->groundAngle = ground.angle;
             player->collisionMode = GetCollisionModeFromAngle(ground.angle);
 
-            // Convert air velocity to ground speed
+            // Convert air velocity to ground speed (SPG-accurate)
+            // When landing on slopes, Y velocity converts to ground speed
+            // Sign is NEGATIVE of sin(angle) so player slides DOWN slopes, not up
             float angleDeg = AngleByteToDegrees(ground.angle);
 
             if (angleDeg < 22.5f || angleDeg > 337.5f) {
+                // Flat ground - just use X velocity
                 player->groundSpeed = player->velocity.x;
             } else if (angleDeg < 45.0f || angleDeg > 315.0f) {
+                // Moderate slope (22.5° - 45°)
                 if (fabsf(player->velocity.x) > fabsf(player->velocity.y)) {
                     player->groundSpeed = player->velocity.x;
                 } else {
-                    float sign = (sinf(AngleByteToRadians(ground.angle)) >= 0) ? 1.0f : -1.0f;
+                    // Negate sign so landing pushes DOWN slope
+                    float sign = (sinf(AngleByteToRadians(ground.angle)) >= 0) ? -1.0f : 1.0f;
                     player->groundSpeed = player->velocity.y * 0.5f * sign;
                 }
             } else {
+                // Steep slope (45°+)
                 if (fabsf(player->velocity.x) > fabsf(player->velocity.y)) {
                     player->groundSpeed = player->velocity.x;
                 } else {
-                    float sign = (sinf(AngleByteToRadians(ground.angle)) >= 0) ? 1.0f : -1.0f;
+                    // Negate sign so landing pushes DOWN slope
+                    float sign = (sinf(AngleByteToRadians(ground.angle)) >= 0) ? -1.0f : 1.0f;
                     player->groundSpeed = player->velocity.y * sign;
                 }
             }
@@ -512,16 +547,16 @@ static void HandleAirCollision(Player* player) {
         }
     }
 
-    // Wall sensors
+    // Wall sensors - only block on actual walls, not slopes
     SensorResult sensorE, sensorF;
     CheckWallSensors(player->position, player->pushRadius, MODE_FLOOR, &sensorE, &sensorF);
 
-    if (sensorE.found && sensorE.distance <= 0 && player->velocity.x < 0) {
+    if (sensorE.found && sensorE.distance <= 0 && player->velocity.x < 0 && IsWallAngle(sensorE.angle)) {
         player->position.x -= sensorE.distance;
         player->velocity.x = 0;
     }
 
-    if (sensorF.found && sensorF.distance <= 0 && player->velocity.x > 0) {
+    if (sensorF.found && sensorF.distance <= 0 && player->velocity.x > 0 && IsWallAngle(sensorF.angle)) {
         player->position.x += sensorF.distance;
         player->velocity.x = 0;
     }
@@ -529,15 +564,28 @@ static void HandleAirCollision(Player* player) {
 
 static void HandleWallCollision(Player* player) {
 
+    // SPG: Don't check wall collision when on ANY slope - the ground sensors handle it
+    // Only check walls when on perfectly flat ground (angle exactly 0)
+    // This prevents getting stuck at tile boundaries on slopes
+    if (player->groundAngle != 0) {
+        return;
+    }
+
+    // Also skip wall collision when rolling - rolling should pass through gaps
+    if (player->isRolling) {
+        return;
+    }
+
     SensorResult sensorE, sensorF;
     CheckWallSensors(player->position, player->pushRadius, player->collisionMode, &sensorE, &sensorF);
 
-    if (sensorE.found && sensorE.distance < 0 && player->groundSpeed < 0) {
+    // Only block if the detected surface is actually wall-like, not a slope
+    if (sensorE.found && sensorE.distance <= 0 && player->groundSpeed < 0 && IsWallAngle(sensorE.angle)) {
         player->position.x -= sensorE.distance;
         player->groundSpeed = 0;
     }
 
-    if (sensorF.found && sensorF.distance < 0 && player->groundSpeed > 0) {
+    if (sensorF.found && sensorF.distance <= 0 && player->groundSpeed > 0 && IsWallAngle(sensorF.angle)) {
         player->position.x += sensorF.distance;
         player->groundSpeed = 0;
     }
@@ -553,9 +601,10 @@ static void HandleRollInitiation(Player* player) {
     // SPG: Must be pressing down and have speed >= 1.0 (S3K threshold)
     if (player->inputDown && fabsf(player->groundSpeed) >= 1.0f) {
         player->isRolling = true;
-        player->widthRadius = player->defaultWidthRadius - 2;
+        player->widthRadius = player->defaultWidthRadius; // not altered
         player->heightRadius = 14;
-        player->position.y += (player->defaultHeightRadius - 14);
+        // Don't shift position here - let ground collision handle the snap
+        // The smaller hitbox will naturally settle on the surface
     }
 }
 
@@ -699,32 +748,98 @@ void DrawPlayer(const Player* player) {
     float width = player->widthRadius * 2;
     float height = player->heightRadius * 2;
 
-    Color boxColor = player->isOnGround ? GREEN : RED;
+    // Color based on collision mode
+    Color boxColor;
+    if (!player->isOnGround) {
+        boxColor = RED;  // Air
+    } else {
+        switch (player->collisionMode) {
+            case MODE_FLOOR:    boxColor = GREEN;   break;
+            case MODE_RIGHT_WALL: boxColor = ORANGE;  break;
+            case MODE_CEILING:  boxColor = PURPLE;  break;
+            case MODE_LEFT_WALL:  boxColor = YELLOW;  break;
+            default:            boxColor = GREEN;   break;
+        }
+    }
     if (player->isRolling) boxColor = BLUE;
 
+    // Draw rotated rectangle based on ground angle
+    float angleDeg = AngleByteToDegrees(player->groundAngle);
     Rectangle rect = {
-        player->position.x - player->widthRadius,
-        player->position.y - player->heightRadius,
+        player->position.x,
+        player->position.y,
         width,
         height
     };
 
-    DrawRectangleRec(rect, (Color){boxColor.r, boxColor.g, boxColor.b, 128});
-    DrawRectangleLinesEx(rect, 1, boxColor);
-    DrawCircleV(player->position, 2, YELLOW);
+    // DrawRectanglePro draws from center with rotation
+    Vector2 origin = {player->widthRadius, player->heightRadius};
+    DrawRectanglePro(rect, origin, -angleDeg, (Color){boxColor.r, boxColor.g, boxColor.b, 128});
 
-    DrawLineV(
-        player->position,
-        (Vector2){player->position.x + player->facing * 15, player->position.y},
-        YELLOW
-    );
+    // Draw outline (rotated)
+    // For outline, draw 4 rotated lines
+    float angleRad = AngleByteToRadians(player->groundAngle);
+    float cosA = cosf(angleRad);
+    float sinA = sinf(angleRad);
 
-    if (player->isOnGround) {
-        Vector2 sensorA = {player->position.x - player->widthRadius, player->position.y + player->heightRadius};
-        Vector2 sensorB = {player->position.x + player->widthRadius, player->position.y + player->heightRadius};
-        DrawCircleV(sensorA, 2, MAGENTA);
-        DrawCircleV(sensorB, 2, MAGENTA);
+    // Corner offsets (unrotated)
+    Vector2 corners[4] = {
+        {-player->widthRadius, -player->heightRadius},
+        { player->widthRadius, -player->heightRadius},
+        { player->widthRadius,  player->heightRadius},
+        {-player->widthRadius,  player->heightRadius}
+    };
+
+    // Rotate and translate corners
+    Vector2 rotated[4];
+    for (int i = 0; i < 4; i++) {
+        rotated[i].x = player->position.x + corners[i].x * cosA + corners[i].y * sinA;
+        rotated[i].y = player->position.y - corners[i].x * sinA + corners[i].y * cosA;
     }
+
+    for (int i = 0; i < 4; i++) {
+        DrawLineV(rotated[i], rotated[(i + 1) % 4], boxColor);
+    }
+
+    DrawCircleV(player->position, 2, WHITE);
+
+    // Draw facing direction (rotated with player)
+    Vector2 facingEnd = {
+        player->position.x + (player->facing * 15) * cosA,
+        player->position.y - (player->facing * 15) * sinA
+    };
+    DrawLineV(player->position, facingEnd, WHITE);
+
+    // Draw ground sensors based on collision mode
+    if (player->isOnGround) {
+        Vector2 sensorA, sensorB;
+        switch (player->collisionMode) {
+            case MODE_FLOOR:
+                sensorA = (Vector2){player->position.x - player->widthRadius, player->position.y + player->heightRadius};
+                sensorB = (Vector2){player->position.x + player->widthRadius, player->position.y + player->heightRadius};
+                break;
+            case MODE_RIGHT_WALL:
+                sensorA = (Vector2){player->position.x + player->heightRadius, player->position.y - player->widthRadius};
+                sensorB = (Vector2){player->position.x + player->heightRadius, player->position.y + player->widthRadius};
+                break;
+            case MODE_CEILING:
+                sensorA = (Vector2){player->position.x + player->widthRadius, player->position.y - player->heightRadius};
+                sensorB = (Vector2){player->position.x - player->widthRadius, player->position.y - player->heightRadius};
+                break;
+            case MODE_LEFT_WALL:
+                sensorA = (Vector2){player->position.x - player->heightRadius, player->position.y + player->widthRadius};
+                sensorB = (Vector2){player->position.x - player->heightRadius, player->position.y - player->widthRadius};
+                break;
+        }
+        DrawCircleV(sensorA, 3, MAGENTA);
+        DrawCircleV(sensorB, 3, MAGENTA);
+    }
+
+    // Draw wall sensors
+    Vector2 wallSensorLeft = {player->position.x - player->pushRadius, player->position.y};
+    Vector2 wallSensorRight = {player->position.x + player->pushRadius, player->position.y};
+    DrawCircleV(wallSensorLeft, 2, SKYBLUE);
+    DrawCircleV(wallSensorRight, 2, SKYBLUE);
 }
 
 // ============================================================================
